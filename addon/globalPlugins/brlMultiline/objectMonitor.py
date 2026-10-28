@@ -102,9 +102,7 @@ class ObjectMonitor:
 		:param segmentKey: the key of the segment to show it in.
 		"""
 		self.name = self.describe(obj)
-		"""What to call this pin. Taken from the object the user chose, before the tree
-		interceptor is substituted for it, because a page's title is more use than the word
-		document."""
+		"""What to call this pin. See `describe`."""
 		self.obj = resolveTarget(obj)
 		self.segmentKey = segmentKey
 		self.regions: list["Region"] | None = None
@@ -162,7 +160,10 @@ class ObjectMonitor:
 
 	@staticmethod
 	def describe(obj: "NVDAObject") -> str:
-		""":return: a short name for an object, for announcing what is being monitored."""
+		""":return: a short name for what pinning an object shows, which is its page in browse mode."""
+		target = resolveTarget(obj)
+		if target is not obj:
+			obj = getattr(target, "rootNVDAObject", None) or obj
 		if obj.name:
 			return obj.name
 		try:

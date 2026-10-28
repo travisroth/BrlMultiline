@@ -10,6 +10,7 @@ the key was pressed.
 
 from ._stubs import (
 	FakeNavigatorObject,
+	FakeTreeInterceptor,
 	callAfterQueue,
 	installStubs,
 	spokenMessages,
@@ -35,6 +36,27 @@ class PinDialogTestCase(PluginTestCase):
 class TestWhatIsOffered(PinDialogTestCase):
 	def test_theObjectIsNamed(self):
 		self.assertEqual(self.manager("the chat").objectName(), "the chat")
+
+	def test_inBrowseModeThePageIsNamedAndNotTheLinkUnderTheCursor(self):
+		"""Since the pin shows the page."""
+		page = FakeTreeInterceptor(["Headlines"])
+		FakeNavigatorObject("the news page", role="DOCUMENT", treeInterceptor=page)
+		link = FakeNavigatorObject("Read more", role="LINK", treeInterceptor=page)
+		self.assertEqual(PinManager(self.plugin, link).objectName(), "the news page")
+
+	def test_inFocusModeTheControlIsNamed(self):
+		page = FakeTreeInterceptor(["Headlines"], passThrough=True)
+		FakeNavigatorObject("the news page", role="DOCUMENT", treeInterceptor=page)
+		field = FakeNavigatorObject("Search", role="EDITABLETEXT", treeInterceptor=page)
+		self.assertEqual(PinManager(self.plugin, field).objectName(), "Search")
+
+	def test_thePinIsNamedAsTheDialogNamedIt(self):
+		page = FakeTreeInterceptor(["Headlines"])
+		FakeNavigatorObject("the news page", role="DOCUMENT", treeInterceptor=page)
+		manager = PinManager(self.plugin, FakeNavigatorObject("Read more", role="LINK", treeInterceptor=page))
+		manager.choose("1")
+		manager.pinChosen()
+		self.assertEqual(self.plugin.pins["display.1"].name, "the news page")
 
 	def test_theTargetsAreTheSegmentsAPinCanGoOn(self):
 		self.pin(0)
