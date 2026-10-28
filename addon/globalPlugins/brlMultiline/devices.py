@@ -159,6 +159,22 @@ def resolveDisplaySegment(
 	return segments[segmentOrdinal]
 
 
+def locateSegment(rects, devices: list[DeviceInfo], number: int) -> tuple[int, int] | None:
+	"""Find which display a segment is on and where it sits there. The inverse of `resolveDisplaySegment`.
+
+	:param rects: the segment rectangles, in display order.
+	:param devices: the physical displays, in stacking order. Empty for an ordinary display.
+	:param number: the segment's index.
+	:return: the display, counting from 0 at the top, and the segment's place on it, counting
+		from 0; or None for an ordinary display, or a segment on no one display.
+	"""
+	for displayOrdinal, device in enumerate(devices):
+		segments = segmentsForDevice(rects, device)
+		if number in segments:
+			return displayOrdinal, segments.index(number)
+	return None
+
+
 def membersChangedAction():
 	"""Find the notification the composite raises when its displays change.
 

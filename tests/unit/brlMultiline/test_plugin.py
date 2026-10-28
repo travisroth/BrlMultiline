@@ -954,6 +954,58 @@ class TestMonitorCarryOver(PluginTestCase):
 		self.assertEqual(self.container.segmentForKey("display.3").regions, [])
 
 
+class TestPinTargets(PluginTestCase):
+	"""The segments a pin can go on, which the pinned objects dialog offers."""
+
+	segmentCount = 8
+
+	def test_theFocusAClaimAndAPinAreLeftOut(self):
+		self.pin(1)
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(2, 0, 1, MONARCH_COLS)))
+		self.assertEqual(self.container.focusSegmentNumber, 7)
+		self.assertEqual(self.plugin.pinTargets(), [0, 3, 4, 5, 6])
+
+	def test_everyTargetIsOneStartMonitoringAccepts(self):
+		"""The dialog and the command both ask `pinRefusal`, so they cannot disagree."""
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(2, 0, 1, MONARCH_COLS)))
+		for number in range(self.container.numSegments):
+			with self.subTest(number=number):
+				refused = self.plugin.pinRefusal(self.container, number) is not None
+				self.assertEqual(number in self.plugin.pinTargets(), not refused)
+
+	def test_aClaimedSegmentSaysWhoHasIt(self):
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(2, 0, 1, MONARCH_COLS)))
+		self.assertIn("table", self.plugin.pinRefusal(self.container, 2))
+
+	def test_anUndividedDisplayHasNoTargets(self):
+		CONFIG["segmentsEnabled"] = False
+		self.plugin.rebuildBuffer()
+		self.assertEqual(self.plugin.pinTargets(), [])
+
+	def test_aSegmentIsNamedByNumberOnOneDisplay(self):
+		self.assertEqual(self.plugin.describeSegment(3), "Segment 3")
+
+
+class TestPinningAChosenObject(PluginTestCase):
+	"""`startMonitoring` given the object, as the dialog does once the navigator has moved onto it."""
+
+	def test_theObjectGivenIsPinnedAndNotTheNavigator(self):
+		import api
+
+		api.getNavigatorObject = lambda: FakeNavigatorObject("the dialog's combo box")
+		self.plugin.startMonitoring(1, FakeNavigatorObject("the chat"))
+		self.assertEqual(self.plugin.pins["display.1"].name, "the chat")
+
+	def test_withNoObjectTheNavigatorIsPinned(self):
+		self.pin(1, name="the navigator")
+		self.assertEqual(self.plugin.pins["display.1"].name, "the navigator")
+
+	def test_aRefusedSegmentIsStillSaid(self):
+		self.plugin.startMonitoring(self.container.focusSegmentNumber, FakeNavigatorObject("the chat"))
+		self.assertEqual(self.plugin.monitoredKeys, set())
+		self.assertTrue(any("follows the focus" in message for message in spokenMessages), spokenMessages)
+
+
 class TestDeferredRebuild(PluginTestCase):
 	def test_aDisplayEventQueuesOneRebuild(self):
 		displayChanged.notify()
@@ -1925,6 +1977,10 @@ class TestDisplayRelativeCommands(PluginTestCase):
 		api.getNavigatorObject = lambda: FakeNavigatorObject("a pinned thing")
 		self.plugin.script_monitorObjectInDisplay1Segment2(None)
 		self.assertEqual(self.plugin.monitoredKeys, set())
+
+	def test_aSegmentIsNamedByItsDisplay(self):
+		self.assertEqual(self.plugin.describeSegment(2), "Segment 2 (segment 0 of the second display)")
+		self.assertEqual(self.plugin.describeSegment(1), "Segment 1 (segment 1 of the first display)")
 
 
 class TestPatchOwnership(PluginTestCase):

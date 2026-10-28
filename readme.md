@@ -151,6 +151,15 @@ the focus is, choose it in "Display the flow appears on" in the BrlMultiline flo
    navigation works too.
 3. Press your pin key.
 
+**Or pin with one key, from a dialog.** A key for every segment's pin and release adds up
+quickly, and a display like the Monarch does not have that many to spare. Instead, assign one
+key to "Monitoring: Opens a dialog to pin the navigator object to a segment, or release a
+pin". Move to what you want to keep in view and press it. The dialog names the object it will
+pin, and offers the segments it can go on, such as "Segment 2 (segment 0 of the second
+display)". Choose one, or type its number, and press Enter: the dialog closes and the object
+is pinned. The same dialog lists what is pinned and where. Select one and press Release to
+stop showing it.
+
 What you pinned stays on that display while you go back to work on the other one. To pan it,
 use that display's own panning keys, or assign keys to "Navigation: Scrolls segment 0 of the
 second display forward" and "back."

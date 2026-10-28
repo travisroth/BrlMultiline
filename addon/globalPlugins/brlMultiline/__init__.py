@@ -19,6 +19,7 @@ import contextlib
 import time
 import types
 from collections.abc import Collection, Mapping
+from typing import TYPE_CHECKING
 
 import addonHandler
 import api
@@ -60,6 +61,7 @@ from .devices import (
 	DeviceInfo,
 	configuredMembers,
 	deviceMap,
+	locateSegment,
 	resolveDisplaySegment,
 	segmentsForDevice,
 )
@@ -81,6 +83,9 @@ from .views import (
 	validateAgainstHardware,
 	viewFromConfig,
 )
+
+if TYPE_CHECKING:
+	from NVDAObjects import NVDAObject
 
 addonHandler.initTranslation()
 
@@ -1175,11 +1180,64 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				continue
 		return numbers
 
-	def startMonitoring(self, segmentNumber: int) -> None:
-		"""Pin the navigator object to a segment.
+	def pinRefusal(self, container: DisplayContainer, number: int) -> str | None:
+		"""Say why a segment cannot hold a pin.
+
+		:param container: the container the segment is in.
+		:param number: a valid segment index.
+		:return: the reason, to be said to the reader, or None if a pin can go there.
+		"""
+		if number == container.focusSegmentNumber:
+			# Translators: reported when asked to pin an object to the segment that follows focus.
+			return _("That segment follows the focus, so it cannot hold a pinned object")
+		segment = container.segments[number]
+		if segment.isReserved:
+			# Something else already owns these cells and will keep redrawing them, so a
+			# pin here would be overwritten without the user being told why.
+			# Translators: reported when asked to pin an object to a segment another
+			# feature has claimed. Placeholders are the segment number and the claim's name.
+			return _("Segment {number} is in use by {owner}").format(number=number, owner=segment.owner)
+		return None
+
+	def pinTargets(self) -> list[int]:
+		""":return: the segments `startMonitoring` would pin to now that hold no pin, in display order."""
+		container = self.container
+		if container is None or not bmConfig.areSegmentsEnabled():
+			return []
+		return [
+			number
+			for number, segment in enumerate(container.segments)
+			if segment.key not in self._monitors and self.pinRefusal(container, number) is None
+		]
+
+	def describeSegment(self, number: int) -> str:
+		"""Name a segment for a reader choosing one: its number, and its display when there are several.
+
+		:param number: a segment index.
+		"""
+		container = self.container
+		devices = deviceMap()
+		place = None
+		if container is not None and len(devices) > 1:
+			place = locateSegment(container.rects, devices, number)
+		if place is None:
+			# Translators: names a segment in a list to choose from. The placeholder is its number.
+			return _("Segment {number}").format(number=number)
+		displayOrdinal, segmentOrdinal = place
+		# Translators: names a segment in a list to choose from, when several displays are combined.
+		# Placeholders are its number, its number counting from 0 on its display, and that display's name.
+		return _("Segment {number} (segment {ordinal} of {display})").format(
+			number=number,
+			ordinal=segmentOrdinal,
+			display=_displayName(displayOrdinal),
+		)
+
+	def startMonitoring(self, segmentNumber: int, obj: "NVDAObject | None" = None) -> None:
+		"""Pin an object to a segment.
 
 		:param segmentNumber: the segment to pin it to, as the per segment commands count
 			them. The pin itself is held by key, so it survives a later rebuild.
+		:param obj: the object to pin, or None for the navigator object.
 		"""
 		if not bmConfig.areSegmentsEnabled():
 			# There is one segment and it follows the focus, so the check below would refuse
@@ -1200,21 +1258,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# The placeholder is replaced with the segment number.
 			ui.message(_("There is no segment {number}").format(number=segmentNumber))
 			return
-		if resolved == container.focusSegmentNumber:
-			# Translators: reported when asked to pin an object to the segment that follows focus.
-			ui.message(_("That segment follows the focus, so it cannot hold a pinned object"))
+		refusal = self.pinRefusal(container, resolved)
+		if refusal is not None:
+			ui.message(refusal)
 			return
 		segment = container.segments[resolved]
-		if segment.isReserved:
-			# Something else already owns these cells and will keep redrawing them, so a
-			# pin here would be overwritten without the user being told why.
-			ui.message(
-				# Translators: reported when asked to pin an object to a segment another
-				# feature has claimed. Placeholders are the segment number and the claim's name.
-				_("Segment {number} is in use by {owner}").format(number=resolved, owner=segment.owner),
-			)
-			return
-		obj = api.getNavigatorObject()
+		if obj is None:
+			obj = api.getNavigatorObject()
 		if obj is None:
 			# Translators: reported when there is no object to pin.
 			ui.message(_("No object to monitor"))
@@ -1272,6 +1322,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			del self._monitors[key]
 			if container is not None and container.hasKey(key):
 				container.clear(key)
+
+	@script(
+		# Translators: input help message for a command.
+		description=_(
+			"Monitoring: Opens a dialog to pin the navigator object to a segment, or release a pin",
+		),
+		category=SCRIPT_CATEGORY,
+	)
+	@gui.blockAction.when(gui.blockAction.Context.MODAL_DIALOG_OPEN)
+	def script_managePins(self, gesture):
+		from . import pinDialog
+
+		pinDialog.managePins(self)
 
 	def reportAboutTheDisplay(self, text: str) -> None:
 		"""Say something about what the display is showing, without writing it there.
