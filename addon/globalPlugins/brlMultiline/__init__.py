@@ -1326,7 +1326,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	@script(
 		# Translators: input help message for a command.
 		description=_(
-			"Monitoring: Opens a dialog to pin the navigator object to a segment, or release a pin"
+			"Monitoring: Opens a dialog to pin the navigator object to a segment, or release a pin",
 		),
 		category=SCRIPT_CATEGORY,
 	)

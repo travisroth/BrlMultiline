@@ -82,7 +82,8 @@ class PinManager:
 			# Translators: one line in the list of pinned objects. Placeholders are the object's
 			# name and the segment it is pinned to, such as "Segment 2".
 			line = _("{name}: {segment}").format(
-				name=monitor.name, segment=self.plugin.describeSegment(number)
+				name=monitor.name,
+				segment=self.plugin.describeSegment(number),
 			)
 			found.append((number, key, line))
 		return [(key, line) for _number, key, line in sorted(found)]
@@ -120,7 +121,7 @@ class PinManager:
 			# Translators: shown when the reader chose a segment that already holds a pinned object.
 			# The placeholder is the segment number.
 			return _("Segment {number} already holds a pinned object. Release it first.").format(
-				number=number
+				number=number,
 			)
 		refusal = self.plugin.pinRefusal(container, number)
 		if refusal is not None:
@@ -224,7 +225,8 @@ if CAN_DRAW:  # pragma: no cover - a dialog needs a display.
 				_("Object to pin:"),
 				wx.TextCtrl,
 				value=manager.objectName(),
-				style=wx.TE_READONLY,
+				# Multi-line, since wx leaves a single-line read-only field out of the tab order.
+				style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_NO_VSCROLL,
 				size=(400, -1),
 			)
 			self.segmentCtrl = helper.addLabeledControl(
