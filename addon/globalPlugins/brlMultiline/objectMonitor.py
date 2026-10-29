@@ -259,10 +259,17 @@ class ObjectMonitor:
 			and self._builtInColumns == self.wantsColumns
 		):
 			return True
+		# A segment resized, as when a place is shared again, keeps the reader where they had panned.
+		place = self._readingPlace() if self._builtInColumns == self.wantsColumns else None
 		self._dropFlow(segment)
 		control = self._build(size)
 		if control is None:
 			return False
+		if place is not None:
+			try:
+				control.enterAtPosition(place)
+			except Exception:
+				log.debugWarning(f"Could not put {self.name!r} back where it was read to", exc_info=True)
 		# Once, as the pin is made, so a band that filled exactly knows whether the run ends
 		# there. See `FlowController.lookPastTheEnd`.
 		control.lookPastTheEnd()
@@ -271,6 +278,16 @@ class ObjectMonitor:
 		self._builtInColumns = self.wantsColumns
 		log.debug(f"Reading the pin on {self.name!r} as a flow in {size[0]} by {size[1]}")
 		return True
+
+	def _readingPlace(self):
+		""":return: where the text at the top of this pin's flow begins, or None without a flow or a position."""
+		if self.controller is None:
+			return None
+		try:
+			return self.controller.topPosition()
+		except Exception:
+			log.debugWarning(f"Could not read where {self.name!r} is read to", exc_info=True)
+			return None
 
 	def _minimumRows(self, rows: int) -> int:
 		""":return: the fewest rows this pin can be read as a flow in.
@@ -456,6 +473,21 @@ class ObjectMonitor:
 			return
 		self._lastCells = None
 		container.updateDisplay()
+
+	def isGone(self) -> bool:
+		""":return: whether the object chosen can no longer be read, as when its window has closed."""
+		try:
+			self.pinned.role
+			handle = getattr(self.pinned, "windowHandle", None)
+		except Exception:
+			return True
+		if not handle:
+			return False
+		try:
+			import winUser
+		except ImportError:
+			return False
+		return not winUser.isWindow(handle)
 
 	def stop(self) -> None:
 		"""Give up whatever this pin is holding, before it is forgotten."""

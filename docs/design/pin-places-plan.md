@@ -5,9 +5,10 @@ up segments and their sizes beforehand, in the settings, and every pin goes into
 segments. That is hard to remember, and the right size depends on what is pinned: a web page
 may want the whole Monarch one day and half of it the next.
 
-Status: designed, nothing built. Builds on the pinned objects dialog (port-plan.md, The pinned
-objects dialog) and reuses the placement half of the app layout contract
-([app-layouts-plan.md](app-layouts-plan.md)).
+Status: built and unit tested, not yet tried in NVDA or on hardware. Builds on the pinned
+objects dialog (port-plan.md, The pinned objects dialog). The places are in `pinPlaces.py`, the
+plugin's side in `GlobalPlugin.pinToPlace` and the methods after it, and the dialog in
+`pinDialog.py`. As built, below, says where the build differs from this design.
 
 ## The idea
 
@@ -118,5 +119,50 @@ only not shown.
 
 ## Open questions
 
-1. Whether a pin's reading position can survive a change of size. To be found out when it is
-   tried; not needed for a first version.
+None at present.
+
+## As built
+
+What building it settled that the design left open, and where it differs.
+
+1. **Places are part of the reader's arrangement, not a claim.** `GlobalPlugin.baseView` lays
+   the places into the configured view (`pinPlaces.withPlaces`) before any claim is composed
+   over it. A pin in a place is an unreserved segment like one of the reader's own, so
+   refreshing, routing, quick navigation, the lock screen, the per segment commands and the
+   app layout's room all work unchanged. A claim was tried on paper first and dropped: a claim
+   is evicted whole by any claim that touches it, so a place and an app layout could not share
+   the focus's rows.
+2. **The app layout's placement is not reused.** A place is one display's rows or cells, the
+   focus segment or a whole other display, so nothing ever crosses a boundary and
+   `placeSegments` has nothing to do. Dividing is `pinPlaces.divide`.
+3. **The focus place is the focus segment,** not the run of free rows around it. A reader with
+   segments of their own keeps them; the place divides only the one that follows the focus.
+4. **Another display's place takes every segment on that display.** It is offered only while
+   none of the reader's own segments there holds a pin and the flow is not there, and a place
+   under another claim, such as a drawing, is not offered at all. With every pin sized and none
+   filling, the rows left are blank. A reader's segment that is the whole of such a display, as
+   with a segment count of 1, is offered only as the place, and typing its number chooses the
+   place: they are the same rows, and only the place can be shared or resized later.
+5. **A pin's key outlives the division.** Keys are `place.<id>.<n>`, numbered as pins are made,
+   so dividing a place again changes rectangles and not keys, and a monitor stays filed under
+   its key. A pin read as a flow is rebuilt at its new size and put back where the reader had
+   panned it to: `ObjectMonitor` reads the position at the top of the old flow and enters the new
+   one there, as a quick navigation key in a pin does. Found in testing, where a page shrinking
+   from eight rows to four went back to where the caret was.
+6. **Pins are held while the display makes way for them.** The flow band and an app layout were
+   claimed for the arrangement before the change, and for one rebuild they can cover a pin's new
+   segment. `GlobalPlugin._rearrange` holds every pin that rebuild drops and files it again once
+   the flow has moved (`GlobalPlugin.roomForFlow`, through `FlowBand.bandRect`) and an app layout
+   has been taken down. The layout is then asked for again from the focus, since its room
+   changed. The flow loses its reader's place when it moves, as it does for any other change of
+   band.
+7. **Set aside, each display is one segment** (`pinPlaces.undividedView`), the focus on the one
+   it was on. The reader's segments that held no pin go too, since there is no other way to give
+   the focus the rows of a segment that is not beside it, and an empty segment shows nothing.
+   While pins are set aside the dialog offers only places, since segment numbers would be those
+   of the undivided display.
+8. **Gone is unreadable.** `ObjectMonitor.isGone` is an object that raises when read, or whose
+   window Windows no longer has.
+9. **Commands.** Setting pins aside has its own unassigned command, beside the dialog's check
+   box. The per segment release command releases a pin in a place too, and the place shares its
+   room among those left.

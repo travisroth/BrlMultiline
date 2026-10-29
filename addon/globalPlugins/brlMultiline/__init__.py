@@ -43,7 +43,7 @@ from . import (
 )
 from . import tableHeaderSpeech
 from . import userBrailleTable
-from . import container as containerModule, monitorRouting, pinQuickNav
+from . import container as containerModule, monitorRouting, pinPlaces, pinQuickNav
 from .container import DisplayContainer
 from . import chartSource, glyphFlow, glyphs, graphicsMode
 from . import appLayout
@@ -51,6 +51,7 @@ from .appLayoutHost import AppLayoutHost
 from . import image as imageFigure
 from .layoutOverview import LayoutOverview
 from .focusDisplays import FocusDisplayMoves
+from .i18n import ngettext
 from .keyLayerCommands import KeyLayerCommands
 from .pictureCommands import PictureCommands
 from .tableCommands import PagedTable, TableCommands
@@ -65,10 +66,10 @@ from .devices import (
 	resolveDisplaySegment,
 	segmentsForDevice,
 )
-from .layout import SegmentRect
+from .layout import SegmentRect, rectsIntersect
 from .messages import MessageBuffer
 from .objectMonitor import ObjectMonitor
-from .panels import BraillePanel
+from .panels import BraillePanel, FlowPanel
 from .settingsPanel import (
 	BrailleMultilineSettingsPanel,
 	FlowSettingsPanel,
@@ -133,6 +134,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		Keyed rather than numbered so that a rebuild which keeps a segment keeps its pin.
 		"""
+
+		self.places = pinPlaces.Places()
+		"""The places pins have made room in, laid into the reader's arrangement. See `pinPlaces`."""
+
+		self._pinsAside: dict[str, ObjectMonitor] | None = None
+		"""The reader's pins while they are set aside for now, else None. See `setPinsAside`."""
+
+		self._heldPins: dict[str, ObjectMonitor] | None = None
+		"""Pins whose segment a rebuild did not have while the display was being rearranged around
+		them, else None. See `_rearrange`."""
 
 		self._appLayoutsSuspended = False
 		"""Whether the reader has set app layouts aside for now, until NVDA restarts.
@@ -574,28 +585,50 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		return view, kept
 
 	def baseView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView:
-		""":return: the view claims are laid over: an activated one, else the configured one.
+		""":return: the view claims are laid over: an activated one, else the configured one with
+		its places, or undivided while pins are set aside.
 
 		:param numRows: number of rows on the display.
 		:param numCols: number of columns on the display.
 		:param devices: the physical displays behind a composite one, empty for an ordinary one.
 		"""
-		if self._activeView is not None:
-			try:
-				self._activeView.validate(numRows, numCols)
-				# Rechecked on every rebuild rather than only when the view was activated,
-				# because the displays behind a composite one can change under a view that was
-				# perfectly good when it was made.
-				validateAgainstHardware(self._activeView, devices, numCols)
-				return self._activeView
-			except (ValueError, LookupError):
-				# The display changed under the view and its panels no longer fit it.
-				log.warning(
-					f"BrlMultiline: view {self._activeView.name!r} cannot be shown on "
-					f"a {numRows} by {numCols} display; returning to the configured view",
-					exc_info=True,
-				)
-				self._activeView = None
+		view = self._activatedView(numRows, numCols, devices)
+		if view is not None:
+			return view
+		view = self.configuredView(numRows, numCols, devices)
+		if self._pinsAside is not None:
+			return pinPlaces.undividedView(view, numRows, numCols, devices)
+		areas = pinPlaces.placeAreas(view, devices)
+		return pinPlaces.withPlaces(view, self.places, areas, numRows, numCols)
+
+	def _activatedView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView | None:
+		""":return: the view code activated, or None if there is none or it no longer fits."""
+		if self._activeView is None:
+			return None
+		try:
+			self._activeView.validate(numRows, numCols)
+			# Rechecked on every rebuild rather than only when the view was activated,
+			# because the displays behind a composite one can change under a view that was
+			# perfectly good when it was made.
+			validateAgainstHardware(self._activeView, devices, numCols)
+			return self._activeView
+		except (ValueError, LookupError):
+			# The display changed under the view and its panels no longer fit it.
+			log.warning(
+				f"BrlMultiline: view {self._activeView.name!r} cannot be shown on "
+				f"a {numRows} by {numCols} display; returning to the configured view",
+				exc_info=True,
+			)
+			self._activeView = None
+			return None
+
+	def configuredView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView:
+		""":return: the reader's own arrangement, from the settings, without places.
+
+		:param numRows: number of rows on the display.
+		:param numCols: number of columns on the display.
+		:param devices: the physical displays behind a composite one, empty for an ordinary one.
+		"""
 		if devices:
 			# Hooked in here because this is the one place that knows both the composite's own
 			# configuration key and the keys of the displays behind it. It does its work once
@@ -945,16 +978,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param container: the container about to be installed.
 		"""
 
-		def keeps(key: str) -> bool:
-			return (
-				container.hasKey(key)
-				and not container.segmentForKey(key).isReserved
-				and key != container.focusSegmentKey
-			)
-
-		survivors = {key: monitor for key, monitor in self._monitors.items() if keeps(key)}
+		survivors = {
+			key: monitor for key, monitor in self._monitors.items() if self._canKeepPin(container, key)
+		}
 		present = {device.driverName for device in deviceMap()}
 		for key in self._monitors.keys() - survivors.keys():
+			if self._heldPins is not None:
+				# A claim that has yet to make way for it may cover it for one rebuild.
+				self._heldPins[key] = self._monitors[key]
+				continue
 			driverName = driverNameForSegmentKey(key)
 			gone = driverName is not None and driverName not in present
 			carrying = any(monitor is self._monitors[key] for monitor in self.focusMoves.pinsInFlight)
@@ -990,6 +1022,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					f"so its pinned object is released",
 				)
 		self._monitors = survivors
+		if self._heldPins is None and self._pinsAside is None and self.places.keepOnly(survivors):
+			# A pin in a place was let go, so the place is shared among fewer.
+			self._scheduleRebuild()
+
+	@staticmethod
+	def _canKeepPin(container: DisplayContainer, key: str) -> bool:
+		""":return: whether a pin can stay on a segment: it is there, unclaimed and not the focus."""
+		return (
+			container.hasKey(key)
+			and not container.segmentForKey(key).isReserved
+			and key != container.focusSegmentKey
+		)
 
 	def rehomeMonitor(self, container: DisplayContainer, taken: Collection[str]) -> str | None:
 		"""Find somewhere for a pin whose segment has gone.
@@ -1232,6 +1276,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			display=_displayName(displayOrdinal),
 		)
 
+	def describeDisplay(self, driverName: str) -> str:
+		""":return: what to call one of the combined displays, as the display relative commands do."""
+		ordinal = next(
+			(index for index, device in enumerate(deviceMap()) if device.driverName == driverName),
+			None,
+		)
+		return _displayName(ordinal) if ordinal is not None else driverName
+
 	def startMonitoring(self, segmentNumber: int, obj: "NVDAObject | None" = None) -> None:
 		"""Pin an object to a segment.
 
@@ -1307,21 +1359,304 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# drawing from a flow nothing owns any more.
 		self._monitors[key].stop()
 		del self._monitors[key]
-		container.clear(key)
-		container.update()
-		container.updateDisplay()
+		if self.places.remove(key):
+			self._rearrange()
+		else:
+			container.clear(key)
+			container.update()
+			container.updateDisplay()
 		# Translators: reported when an object is unpinned from a segment.
 		# The placeholder is replaced with the segment number.
 		ui.message(_("Stopped monitoring in segment {number}").format(number=resolved))
 
 	def stopAllMonitoring(self) -> None:
-		"""Release every monitored segment, without announcing anything."""
+		"""Release every monitored segment, and every pin set aside, without announcing anything."""
 		container = self.container
 		for key in list(self._monitors):
 			self._monitors[key].stop()
 			del self._monitors[key]
 			if container is not None and container.hasKey(key):
 				container.clear(key)
+		for monitor in (self._pinsAside or {}).values():
+			monitor.stop()
+		self._pinsAside = None
+		self.places = pinPlaces.Places()
+
+	# Places, where pins make their own room. See docs/design/pin-places-plan.md.
+
+	@property
+	def arePinsAside(self) -> bool:
+		""":return: whether the reader's pins are set aside for now."""
+		return self._pinsAside is not None
+
+	@property
+	def pinsAside(self) -> Mapping[str, ObjectMonitor]:
+		""":return: the pins set aside, by the key each goes back to, read only. Empty while they are shown."""
+		return types.MappingProxyType(self._pinsAside or {})
+
+	def placeAreas(self) -> dict[str, SegmentRect]:
+		""":return: where each place is now. Empty with no display, or while code has a view of its own up."""
+		try:
+			numRows, numCols = self._displayDimensions()
+		except ValueError:
+			return {}
+		devices = deviceMap()
+		if self._activatedView(numRows, numCols, devices) is not None:
+			return {}
+		return pinPlaces.placeAreas(self.configuredView(numRows, numCols, devices), devices)
+
+	def offeredPlaces(self) -> dict[str, SegmentRect]:
+		""":return: the places a pin can be made in now, by id, with where each is.
+
+		No place under a claim such as a drawing, which would cover a pin there; the flow and an app
+		layout make way instead. Another display is not offered while a pin in one of the
+		reader's own segments is on it, since a place there would take that segment, nor while
+		the flow is on it.
+		"""
+		claims = [
+			panel.rect
+			for panel in self._activePanels
+			if not isinstance(panel, (FlowPanel, appLayout.AppLayoutPanel))
+		]
+		pinned = {
+			driverNameForSegmentKey(key)
+			for key in [*self._monitors, *(self._pinsAside or {})]
+			if not pinPlaces.isPlaceKey(key)
+		}
+		band = self.flowBand.segment() if self.flowBand is not None else None
+		offered = {}
+		for placeId, area in self.placeAreas().items():
+			if any(rectsIntersect(rect, area) for rect in claims):
+				continue
+			if placeId != pinPlaces.FOCUS_PLACE and (
+				placeId in pinned or (band is not None and rectsIntersect(band.rect, area))
+			):
+				continue
+			offered[placeId] = area
+		return offered
+
+	def pinToPlace(
+		self,
+		placeId: str,
+		obj: "NVDAObject",
+		size: int | None = None,
+		before: bool = False,
+		atStart: bool = False,
+	) -> bool:
+		"""Pin an object in a place, making room for it there. Says what happened.
+
+		Pins set aside are shown again first, so the reader sees what this changes.
+
+		:param placeId: the place, from `offeredPlaces`.
+		:param obj: the object to pin.
+		:param size: rows, or cells in a one row place, or None to share what is left.
+		:param before: in the focus place, before the focus rather than after it.
+		:param atStart: before the pins already on that side rather than after them.
+		:return: whether it was pinned.
+		"""
+		if self._pinsAside is not None:
+			self.setPinsAside(False)
+		area = self.offeredPlaces().get(placeId)
+		if area is None:
+			# Translators: reported when a place to pin to is no longer on the display.
+			ui.message(_("That place is no longer on the display"))
+			return False
+		try:
+			pin = self.places.add(placeId, area, size, before=before, atStart=atStart)
+		except pinPlaces.PlaceError as error:
+			ui.message(self.noRoomMessage(area, error.room))
+			return False
+		self._rearrange()
+		container = self.container
+		if container is None or not self._canKeepPin(container, pin.key):
+			log.warning(f"BrlMultiline: the place made for a pin on {pin.key!r} is not on the display")
+			self.places.remove(pin.key)
+			self._rearrange()
+			# Translators: reported when a place to pin to is no longer on the display.
+			ui.message(_("That place is no longer on the display"))
+			return False
+		monitor = ObjectMonitor(obj, pin.key)
+		monitor.wantsColumns = wantsColumns(self.tableRequest.wanted, obj)
+		self._monitors[pin.key] = monitor
+		self.refreshMonitors(reveal=pin.key)
+		ui.message(
+			# Translators: reported when an object is pinned to a segment.
+			# Placeholders are the object's name and the segment number.
+			_("Monitoring {name} in segment {number}").format(
+				name=monitor.name,
+				number=container.numberForKey(pin.key),
+			),
+		)
+		return True
+
+	def resizePin(self, key: str, size: int | None) -> str | None:
+		"""Give a pin in a place another size, dividing the place again.
+
+		:param key: the pin's segment key.
+		:param size: rows, or cells in a one row place, or None to share what is left.
+		:return: why it could not be done, to be shown to the reader, or None once it is.
+		"""
+		place = self.places.placeOf(key)
+		area = self.placeAreas().get(place.placeId) if place is not None else None
+		if area is None:
+			# Translators: reported when a place to pin to is no longer on the display.
+			return _("That place is no longer on the display")
+		try:
+			self.places.resize(key, area, size)
+		except pinPlaces.PlaceError as error:
+			return self.noRoomMessage(area, error.room)
+		self._rearrangeUnlessAside()
+		return None
+
+	def shiftPin(self, key: str, by: int) -> bool:
+		"""Move a pin in a place earlier or later, past the focus too.
+
+		:param by: -1 for earlier, 1 for later.
+		:return: whether it moved, which it does not at either end of its place.
+		"""
+		if not self.places.move(key, by):
+			return False
+		self._rearrangeUnlessAside()
+		return True
+
+	def releasePin(self, key: str) -> None:
+		"""Release a pin by its key, shown or set aside, saying so as the release command does."""
+		if self._pinsAside is not None and key in self._pinsAside:
+			monitor = self._pinsAside.pop(key)
+			monitor.stop()
+			self.places.remove(key)
+			# Translators: reported when a pin that is set aside is released. The placeholder is the
+			# name of what was pinned.
+			ui.message(_("Stopped monitoring {name}").format(name=monitor.name))
+			return
+		container = self.container
+		if container is None or key not in self._monitors:
+			return
+		try:
+			number = container.numberForKey(key)
+		except LookupError:
+			return
+		self.stopMonitoring(number)
+
+	def setPinsAside(self, aside: bool) -> None:
+		"""Set the reader's pins aside for now, or show them again. Says which.
+
+		Set aside, every pin is kept with its place but not read or shown, and each display is
+		one segment, so the focus, the flow or an app layout has the rows. Shown again, the places
+		are laid out as they were and a pin whose object has gone is released.
+
+		:param aside: True to set them aside, False to show them.
+		"""
+		if aside == (self._pinsAside is not None):
+			return
+		if aside:
+			if not self._monitors:
+				# Translators: reported when asked to set pins aside and nothing is pinned.
+				ui.message(_("Nothing is pinned"))
+				return
+			self._pinsAside, self._monitors = self._monitors, {}
+			self._rearrange()
+			# Translators: reported when the reader's pins have been set aside for now.
+			ui.message(_("Pins set aside"))
+			return
+		returning, self._pinsAside = self._pinsAside or {}, None
+		said = [
+			# Translators: reported when the reader's pins have been shown again after being set aside.
+			_("Pins shown"),
+		]
+		for key, monitor in list(returning.items()):
+			if monitor.isGone():
+				del returning[key]
+				monitor.stop()
+				self.places.remove(key)
+				# Translators: reported when pins are shown again and what one was showing has gone.
+				# The placeholder is the name of what was pinned.
+				said.append(_("{name} is gone, so its pin is released").format(name=monitor.name))
+		self._monitors.update(returning)
+		self._rearrange()
+		ui.message(". ".join(said))
+
+	@script(
+		# Translators: input help message for a command.
+		description=_("Monitoring: Sets the pinned objects aside for now, or shows them again"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_togglePinsAside(self, gesture):
+		self.setPinsAside(self._pinsAside is None)
+
+	def noRoomMessage(self, area: SegmentRect, room: int | None) -> str:
+		""":return: what to tell a reader a place has no room for, saying how much is free.
+
+		:param area: the place.
+		:param room: the most the pin could have there, or None if not known.
+		"""
+		if not room or room < pinPlaces.minimumFor(area):
+			# Translators: reported when a place to pin to has no room for another pin.
+			return _("There is no room for that there")
+		if area.numRows > 1:
+			# Translators: reported when a pin asks for more rows than a place has free.
+			# The placeholder is the number of rows free.
+			return ngettext(
+				"Only {count} row is free there",
+				"Only {count} rows are free there",
+				room,
+			).format(
+				count=room,
+			)
+		# Translators: reported when a pin asks for more cells than a place has free.
+		# The placeholder is the number of cells free.
+		return ngettext("Only {count} cell is free there", "Only {count} cells are free there", room).format(
+			count=room,
+		)
+
+	def roomForFlow(self, rect: SegmentRect) -> SegmentRect:
+		""":return: the band the flow may claim, out of the way of pins in places. See `pinPlaces.flowRoom`.
+
+		:param rect: the band the flow settings ask for.
+		"""
+		if self._pinsAside is not None or not self.places.places:
+			return rect
+		try:
+			numRows, numCols = self._displayDimensions()
+		except ValueError:
+			return rect
+		view = self.baseView(numRows, numCols, deviceMap())
+		specs = view.flatten()
+		pinRects = [spec.rect for spec in specs if pinPlaces.isPlaceKey(spec.key)]
+		focusRect = next((spec.rect for spec in specs if spec.key == view.focusSegmentKey), None)
+		return pinPlaces.flowRoom(rect, pinRects, focusRect, numRows, numCols)
+
+	def _rearrangeUnlessAside(self) -> None:
+		"""Rearrange for a change to a place, unless the pins are set aside and not shown anyway."""
+		if self._pinsAside is None:
+			self._rearrange()
+
+	def _rearrange(self) -> None:
+		"""Rebuild for a change to the places, or to pins being set aside, keeping every pin.
+
+		The flow band and an app layout were claimed for the arrangement before the change, and
+		may cover a pin for the rebuild that moves them, so pins are held through it and filed
+		again after. An app layout is taken down and asked for again, since its room changed.
+		"""
+		layoutWasUp = self.appLayouts.shown is not None
+		self._heldPins = {}
+		try:
+			if layoutWasUp:
+				self.appLayouts.takeDown("the reader's pins changed")
+			self.rebuildBuffer()
+		finally:
+			held, self._heldPins = self._heldPins, None
+		container = self.container
+		for key, monitor in held.items():
+			if container is not None and self._canKeepPin(container, key):
+				self._monitors[key] = monitor
+				continue
+			log.debug(f"BrlMultiline: segment {key!r} is not in the new arrangement, so its pin is released")
+			monitor.stop()
+			self.places.remove(key)
+		self.refreshMonitors()
+		if layoutWasUp:
+			self.appLayouts.followFocus(api.getFocusObject())
 
 	@script(
 		# Translators: input help message for a command.

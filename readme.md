@@ -160,6 +160,27 @@ display)". Choose one, or type its number, and press Enter: the dialog closes an
 is pinned. The same dialog lists what is pinned and where. Select one and press Release to
 stop showing it.
 
+**You don't have to set up segments first.** After your own segments, the dialog offers
+places, which make room for a pin when you pin it: "Above the focus" and "Below the focus"
+take rows from the segment that follows the focus ("Before" and "After" on a one-row display),
+and with displays combined, "All of the second display" takes a whole display the focus isn't
+on. A segment of yours that is a whole display is offered as that display's place instead, so
+it can be shared later. Leave Size at Fill and the pin shares the place: the first takes all of the second display,
+a second pinned there gives each half, and releasing one gives its room back. Or choose a size,
+such as 3 rows, and the pins left at Fill share what's left. On a one-row display a size is in
+cells, and every pin keeps at least a quarter of the row. When a place already holds pins,
+"Before or after the pins there" says where the new one goes.
+To change a pin later, select it in the list: New size and Resize give it another size, and
+Move up and Move down change its order, past the focus too. The flow keeps to the rows the
+pins leave it, and stops while they leave it fewer than two.
+
+**Set pins aside for now** when you want the whole display for a moment, for the focus, the
+flow or an application's layout. Check "Set pins aside for now" in the dialog, or assign a key
+to "Monitoring: Sets the pinned objects aside for now, or shows them again". Each display
+becomes one segment, and nothing pinned is lost: shown again, every pin is back where it was,
+at the size it was. A pin whose object has gone in the meantime, such as a closed window, is
+released and you're told so. Pinning something new shows them again first.
+
 What you pinned stays on that display while you go back to work on the other one. To pan it,
 use that display's own panning keys, or assign keys to "Navigation: Scrolls segment 0 of the
 second display forward" and "back."
@@ -1308,7 +1329,16 @@ Unpins and clears that segment.
 numbered across the whole display. You can't pin an object to the segment that follows the
 focus.
 
-**Stops showing an object in segment N.** Unpins and clears that segment.
+**Stops showing an object in segment N.** Unpins and clears that segment. A pin in a place
+gives its room back to the others in the place.
+
+**Monitoring: Opens a dialog to pin the navigator object to a segment, or release a pin.** Pins
+to one of your segments or to a place that makes room for the pin, and resizes, moves, releases
+or sets aside what is pinned. Not assigned to a key by default.
+
+**Monitoring: Sets the pinned objects aside for now, or shows them again.** Each display
+becomes one segment until you press it again, when the pins come back as they were. Not
+assigned to a key by default.
 
 **A routing key in a pinned object goes there,** as clicking it would, even when it is in
 another application. Its window comes forward, and the click is made at the text or item you
