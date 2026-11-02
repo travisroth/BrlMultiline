@@ -82,11 +82,15 @@ class FocusHost(Protocol):
 	@property
 	def pins(self) -> Mapping[str, ObjectMonitor]: ...
 
-	def baseView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView: ...
+	def activatedView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView | None: ...
+
+	def configuredView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView: ...
 
 	def landPin(self, monitor: ObjectMonitor, home: str) -> None: ...
 
 	def movePin(self, key: str, home: str) -> ObjectMonitor: ...
+
+	def movePlacesWithFocus(self, leaving: str, arriving: str) -> list[str]: ...
 
 	def rebuildBuffer(self) -> None: ...
 
@@ -155,12 +159,15 @@ class FocusDisplayMoves:
 			return []
 		dimensions = handler.displayDimensions
 		try:
-			view = self.plugin.baseView(dimensions.numRows, dimensions.numCols, devices)
+			# An activated view names its own focus segment, so the setting is not read. Places
+			# and pins set aside are laid over the configured view, and follow the focus.
+			if self.plugin.activatedView(dimensions.numRows, dimensions.numCols, devices) is not None:
+				return []
+			view = self.plugin.configuredView(dimensions.numRows, dimensions.numCols, devices)
 		except Exception:
 			log.debugWarning("BrlMultiline: could not read the display's arrangement", exc_info=True)
 			return []
 		if view.name != "devices":
-			# An activated view names its own focus segment, so the setting is not read.
 			return []
 		try:
 			keys = deviceSegmentKeys(devices, dimensions.numCols)
@@ -314,8 +321,12 @@ class FocusDisplayMoves:
 			they should move to. Others are released by `GlobalPlugin._carryOverMonitors`.
 		"""
 		number = self.focusSegmentFor(target, position)
+		leaving = next((each.driverName for each in self.targets() if each.holdsFocus), None)
 		carried = self._carryPins(keep or {})
 		bmConfig.setFocusSegment(number)
+		crowdedOut = []
+		if leaving is not None and leaving != target.driverName:
+			crowdedOut = self.plugin.movePlacesWithFocus(leaving, target.driverName)
 		try:
 			# One move can rebuild the display several times: the band is claimed or given
 			# back as the focus arrives, and claiming rebuilds again. The pins are in flight
@@ -330,6 +341,10 @@ class FocusDisplayMoves:
 		)
 		for message in self.describeCarriedPins(carried):
 			ui.message(message)
+		for name in crowdedOut:
+			# Translators: reported when the focus moves to another display and a pin that moved with
+			# it does not fit there. The placeholder is the name of what was pinned.
+			ui.message(_("There is no room for {name}, so its pin is released").format(name=name))
 
 	def _landPinsInFlight(self) -> None:
 		"""Put the pins a focus move carried into the display it ended up building.

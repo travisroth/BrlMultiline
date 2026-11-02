@@ -9,6 +9,7 @@ See docs/design/pin-places-plan.md.
 """
 
 import unittest
+from unittest import mock
 
 from ._stubs import (
 	CONFIG,
@@ -17,6 +18,7 @@ from ._stubs import (
 	FakeTreeInterceptor,
 	callAfterQueue,
 	callLaterQueue,
+	fakeRun,
 	fakeVirtualDisplay,
 	installStubs,
 	setBandConfig,
@@ -27,7 +29,7 @@ installStubs()
 
 from .test_plugin import MONARCH_COLS, MONARCH_ROWS, PluginTestCase  # noqa: E402
 
-from brlMultiline import pinPlaces  # noqa: E402
+from brlMultiline import flowBuild, pinPlaces  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.panels import SinglePanel  # noqa: E402
 from brlMultiline.pinPlaces import (  # noqa: E402
@@ -311,6 +313,48 @@ class TestAPinReadAsAFlowInAPlace(PlacesTestCase):
 		self.assertEqual(self.topLine(monitor), before)
 
 
+class TestWhereAResizedPinIsReadTo(PlacesTestCase):
+	"""Rows cut to the width, as the renderer does without NVDA's own word wrap, so a paragraph
+	wraps over several rows."""
+
+	def setUp(self):
+		super().setUp()
+		renderer = flowBuild.FlowRenderer
+
+		def cutToTheWidth(*args, **kwargs):
+			kwargs["fillRows"] = True
+			return renderer(*args, **kwargs)
+
+		patcher = mock.patch.object(flowBuild, "FlowRenderer", cutToTheWidth)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def test_aPageKeepsTheRowOfAWrappedParagraphItWasPannedTo(self):
+		page = FakeTreeInterceptor(["word " * 150, "last line"], caretIndex=0)
+		self.plugin.pinToPlace(FOCUS_PLACE, FakeNavigatorObject("the page", treeInterceptor=page), before=True)
+		monitor = self.plugin.pins[self.keyOf("the page")]
+		self.assertTrue(monitor.controller.panForward())
+		before = monitor.controller.topPosition()
+		self.assertGreater(before.offset, 0)
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the page"), 3))
+		self.assertEqual(monitor.controller.topPosition().compareEndPoints(before, "startToStart"), 0)
+
+	def test_aListKeepsTheItemAtItsTop(self):
+		items = fakeRun([f"item {index}" for index in range(20)])
+		self.plugin.pinToPlace(FOCUS_PLACE, items[0], before=True)
+		key, monitor = next(iter(self.plugin.pins.items()))
+		self.assertTrue(monitor.controller.panForward())
+
+		def topObject():
+			control = monitor.controller
+			return control.blocks.get(control.window.anchor.blockId).region.obj
+
+		before = topObject()
+		self.assertIsNot(before, items[0])
+		self.assertIsNone(self.plugin.resizePin(key, 3))
+		self.assertIs(topObject(), before)
+
+
 class TestPlacesBesideTheFlow(PlacesTestCase):
 	def setUp(self):
 		super().setUp()
@@ -331,6 +375,14 @@ class TestPlacesBesideTheFlow(PlacesTestCase):
 		self.pinTo(before=True, size=7)
 		self.assertIn(self.keyOf("the page"), self.plugin.pins)
 		self.assertIsNone(self.plugin.flowBand)
+		self.assertIn("too few rows left", spokenMessages[-1])
+
+	def test_aResizeThatStopsTheFlowSaysSo(self):
+		self.pinTo(before=True)
+		spokenMessages.clear()
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the page"), 7))
+		self.assertIsNone(self.plugin.flowBand)
+		self.assertEqual(spokenMessages, ["The flow has too few rows left, so it is off until there is room"])
 
 	def test_andComesBackWhenThePinGoes(self):
 		self.pinTo(before=True, size=7)
@@ -405,6 +457,92 @@ class TestAnotherDisplayAsAPlace(PlacesTestCase):
 		self.assertNotIn("freedomScientific", self.plugin.offeredPlaces())
 
 
+class TestAOneRowPinOnADisplayOfRows(PlacesTestCase):
+	"""A Focus 80 above a Monarch, with the focus on the Focus 80 and the Monarch a place."""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("freedomScientific", 0, 1, 80),
+			("hidBrailleStandard", 1, 8, 32),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=1)
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def test_aPinOfOneRowLeavesTheRestBlank(self):
+		self.assertTrue(self.pinTo("hidBrailleStandard", size=1))
+		self.assertEqual(self.rectOf("the page"), SegmentRect(1, 0, 1, 32))
+
+	def test_resizingToOneRowKeepsThePin(self):
+		self.pinTo("hidBrailleStandard", size=2)
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the page"), 1))
+		self.assertEqual(self.rectOf("the page"), SegmentRect(1, 0, 1, 32))
+
+	def test_aResizeThatCannotBeLaidOutKeepsThePinAsItWas(self):
+		self.pinTo("hidBrailleStandard", size=2)
+		key = self.keyOf("the page")
+		with mock.patch.object(self.plugin, "doPlacesFit", return_value=False):
+			self.assertEqual(self.plugin.resizePin(key, 4), "There is no room for that there")
+		self.assertEqual(self.plugin.places.pinFor(key).size, 2)
+		self.assertEqual(self.rectOf("the page"), SegmentRect(1, 0, 2, 32))
+
+	def test_aPinThatCannotBeLaidOutIsNotMade(self):
+		with mock.patch.object(self.plugin, "doPlacesFit", return_value=False):
+			self.assertFalse(self.pinTo("hidBrailleStandard"))
+		self.assertEqual(self.plugin.places.places, {})
+
+
+class TestMovingTheFocusWithPlaces(TestAOneRowPinOnADisplayOfRows):
+	"""Places are laid over the reader's arrangement, so the focus can still move between displays."""
+
+	def test_thePlacesLeaveBothDisplaysToMoveTo(self):
+		self.pinTo("hidBrailleStandard")
+		self.assertEqual(len(self.plugin.focusMoves.targets()), 2)
+
+	def test_soDoPinsSetAside(self):
+		self.pinTo("hidBrailleStandard")
+		self.plugin.setPinsAside(True)
+		self.assertEqual(len(self.plugin.focusMoves.targets()), 2)
+
+	def test_thePinsOnTheOtherDisplayTradePlacesWithTheFocus(self):
+		self.pinTo("hidBrailleStandard", size=3)
+		monitor = self.plugin.pins[self.keyOf("the page")]
+		self.plugin.script_changeFocusTrackingDisplay(None)
+		self.assertIs(self.plugin.pins[self.keyOf("the page")], monitor)
+		self.assertEqual(self.rectOf("the page"), SegmentRect(0, 0, 1, 80))
+		self.assertEqual(self.focusRect.row, 1)
+		self.assertIsNone(self.plugin.places.pinFor(self.keyOf("the page")).size)
+
+	def test_aPinWithNoRoomWhereItGoesIsReleased(self):
+		for number in range(5):
+			self.assertTrue(self.pinTo("hidBrailleStandard", name=f"pin {number}"))
+		self.plugin.script_changeFocusTrackingDisplay(None)
+		self.assertEqual(len(self.plugin.pins), 4)
+		self.assertIn("There is no room for pin 4, so its pin is released", spokenMessages)
+
+
+class TestTheSegmentCommandsWithPinsAside(TestAOneRowPinOnADisplayOfRows):
+	def test_pinningToASegmentShowsThemAgain(self):
+		self.plugin.startMonitoring(1, FakeNavigatorObject("the clock"))
+		self.plugin.setPinsAside(True)
+		self.plugin.startMonitoring(1, FakeNavigatorObject("the chat"))
+		self.assertFalse(self.plugin.arePinsAside)
+		self.assertEqual(self.plugin.pinsAside, {})
+
+	def test_releasingASegmentReleasesAPinSetAsideThere(self):
+		self.plugin.startMonitoring(1, FakeNavigatorObject("the clock"))
+		self.plugin.setPinsAside(True)
+		self.plugin.stopMonitoring(1)
+		self.assertEqual(self.plugin.pinsAside, {})
+		self.assertEqual(self.plugin.pins, {})
+
+
 class TestSettingPinsAside(PlacesTestCase):
 	def test_theFocusHasTheWholeDisplayWhileTheyAreAside(self):
 		self.pinTo(before=True)
@@ -459,6 +597,17 @@ class TestSettingPinsAside(PlacesTestCase):
 		self.pinTo(name="the chat")
 		self.assertFalse(self.plugin.arePinsAside)
 		self.assertEqual(len(self.plugin.pins), 2)
+
+	def test_aPageStaysPinnedWhenTheLinkItWasPinnedFromGoes(self):
+		page = FakeTreeInterceptor([f"line {index}" for index in range(20)])
+		FakeNavigatorObject("the page", role="DOCUMENT", treeInterceptor=page)
+		link = DyingObject("a link", role="LINK", treeInterceptor=page)
+		self.plugin.pinToPlace(FOCUS_PLACE, link, before=True)
+		key = next(iter(self.plugin.pins))
+		self.plugin.setPinsAside(True)
+		link.dead = True
+		self.plugin.setPinsAside(False)
+		self.assertIn(key, self.plugin.pins)
 
 	def test_withNothingPinnedThereIsNothingToSetAside(self):
 		self.plugin.setPinsAside(True)

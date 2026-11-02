@@ -257,7 +257,8 @@ def _laidIn(
 	for member, rect in zip(place.members, rects):
 		name = focusKey if member is None else member.key
 		kept.append(SinglePanel(name, rect, reserve=False))
-	used = sum(extentOf(rect) for rect in rects)
+	# Measured along the place's own axis: a one row rectangle in a place of rows is one row.
+	used = sum(rect.numRows if area.numRows > 1 else rect.numCols for rect in rects)
 	if used < extentOf(area):
 		rest = SegmentRect(area.row + used, area.col, area.numRows - used, area.numCols)
 		if area.numRows == 1:
@@ -456,6 +457,51 @@ class Places:
 		for key in gone:
 			self.remove(key)
 		return bool(gone)
+
+	def followFocus(self, leaving: str, arriving: str) -> None:
+		"""The focus moved from one display to another: the place on the display it arrived at goes
+		to the one it left, so the two trade places, as a pin in a segment does.
+
+		The focus place and the place that moved go back to sharing equally, since a size in rows
+		means nothing on a display of one row, and a count of rows one display had may not fit
+		another. See L{fitTo} for pins that then have no room.
+
+		:param leaving: the driver name of the display the focus was on.
+		:param arriving: the driver name of the display it is on now.
+		"""
+		place = self.places.pop(arriving, None)
+		if place is not None and leaving not in self.places:
+			place.placeId = leaving
+			self.places[leaving] = place
+		elif place is not None:
+			self.places[arriving] = place
+		for placeId in (FOCUS_PLACE, leaving):
+			moved = self.places.get(placeId)
+			if moved is not None:
+				moved.members = [None if member is None else PlacePin(member.key) for member in moved.members]
+
+	def fitTo(self, areas: Mapping[str, SegmentRect]) -> list[str]:
+		"""Let go of the pins that do not fit where their places now are, the last first.
+
+		:param areas: where each place is. See L{placeAreas}.
+		:return: the keys of the pins let go, which the caller releases.
+		"""
+		released = []
+		for place in list(self.places.values()):
+			area = areas.get(place.placeId)
+			while place.pins:
+				if area is not None:
+					try:
+						divide(extentOf(area), place.sizes(), minimumFor(area))
+						break
+					except PlaceError:
+						pass
+				last = place.pins[-1]
+				place.members.remove(last)
+				released.append(last.key)
+			if not place.pins:
+				del self.places[place.placeId]
+		return released
 
 	def _placeFor(self, key: str) -> Place:
 		place = self.placeOf(key)

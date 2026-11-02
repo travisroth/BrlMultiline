@@ -17,6 +17,8 @@ split `flowTableManager` makes.
 import copy
 import dataclasses
 import re
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Protocol
 
 import api
 import ui
@@ -26,6 +28,11 @@ from . import pinPlaces
 from .i18n import ngettext
 from .layout import SegmentRect
 from .objectMonitor import ObjectMonitor
+
+if TYPE_CHECKING:
+	from NVDAObjects import NVDAObject
+
+	from .container import DisplayContainer
 
 try:
 	import wx
@@ -39,6 +46,57 @@ except ImportError:  # pragma: no cover - only in a test run with no NVDA around
 import addonHandler
 
 addonHandler.initTranslation()
+
+
+class PinHost(Protocol):
+	"""What `PinManager` uses of the plugin. See docs/design/architecture.md, Module map."""
+
+	places: pinPlaces.Places
+
+	@property
+	def container(self) -> "DisplayContainer | None": ...
+
+	@property
+	def pins(self) -> Mapping[str, ObjectMonitor]: ...
+
+	@property
+	def pinsAside(self) -> Mapping[str, ObjectMonitor]: ...
+
+	@property
+	def arePinsAside(self) -> bool: ...
+
+	def pinTargets(self) -> list[int]: ...
+
+	def pinRefusal(self, container: "DisplayContainer", number: int) -> str | None: ...
+
+	def describeSegment(self, number: int) -> str: ...
+
+	def describeDisplay(self, driverName: str) -> str: ...
+
+	def placeAreas(self) -> dict[str, SegmentRect]: ...
+
+	def offeredPlaces(self) -> dict[str, SegmentRect]: ...
+
+	def noRoomMessage(self, area: SegmentRect, room: int | None) -> str: ...
+
+	def startMonitoring(self, segmentNumber: int, obj: "NVDAObject | None" = None) -> None: ...
+
+	def pinToPlace(
+		self,
+		placeId: str,
+		obj: "NVDAObject",
+		size: int | None = None,
+		before: bool = False,
+		atStart: bool = False,
+	) -> bool: ...
+
+	def resizePin(self, key: str, size: int | None) -> str | None: ...
+
+	def shiftPin(self, key: str, by: int) -> bool: ...
+
+	def releasePin(self, key: str) -> None: ...
+
+	def setPinsAside(self, aside: bool) -> None: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,15 +142,27 @@ def parseSize(text: str) -> int | None:
 	"""Read a size the reader chose or typed.
 
 	:return: the size, or None for fill, which is also what nothing typed means.
-	:raises ValueError: if it is neither fill nor a number of at least one.
+	:raises ValueError: if it is neither fill, a whole number of at least one, nor a size as
+		`sizeWords` words it.
 	"""
 	text = text.strip()
 	if not text or text.casefold() == sizeWords(None, None).casefold():
 		return None
-	found = re.search(r"\d+", text)
-	if found is None or int(found.group()) < 1:
+	numbers = re.findall(r"\d+", text)
+	if len(numbers) != 1 or int(numbers[0]) < 1:
 		raise ValueError(text)
-	return int(found.group())
+	size = int(numbers[0])
+	worded = {sizeWords(size, area).casefold() for area in (_ROWS, _CELLS)}
+	if text != numbers[0] and text.casefold() not in worded:
+		raise ValueError(text)
+	return size
+
+
+_ROWS = SegmentRect(0, 0, 2, 1)
+"""Any place of rows, for wording a size in rows."""
+
+_CELLS = SegmentRect(0, 0, 1, 1)
+"""Any place of one row, for wording a size in cells."""
 
 
 def sizeChoices(area: SegmentRect | None, most: int | None = None) -> list[str]:
@@ -121,7 +191,7 @@ class PinManager:
 	choice into somewhere else.
 	"""
 
-	def __init__(self, plugin, obj) -> None:
+	def __init__(self, plugin: PinHost, obj) -> None:
 		"""
 		:param plugin: the global plugin, which holds the pins.
 		:param obj: the object to pin, taken before the dialog took the navigator, or None.
@@ -136,6 +206,9 @@ class PinManager:
 
 		self.chosenAtStart = False
 		"""Whether to go before the pins already on that side of a place rather than after them."""
+
+		self.offered: list[Target] = []
+		"""The targets last listed, which a name the reader chose is taken from. See `choose`."""
 
 	@property
 	def chosenKey(self) -> str | None:
@@ -166,12 +239,14 @@ class PinManager:
 			else:
 				places.append(self._displayTarget(placeId, area))
 		if self.plugin.arePinsAside:
+			self.offered = places
 			return places
-		return [
+		self.offered = [
 			Target(self.plugin.describeSegment(number), key=container.segments[number].key)
 			for number in self.plugin.pinTargets()
 			if self._wholeDisplayPlace(container.segments[number].rect, places) is None
 		] + places
+		return self.offered
 
 	@staticmethod
 	def _wholeDisplayPlace(rect: SegmentRect, places: list[Target]) -> Target | None:
@@ -287,6 +362,9 @@ class PinManager:
 	def choose(self, text: str, sizeText: str = "", atStart: bool = False) -> str | None:
 		"""Take where the reader chose to pin, from the list or typed.
 
+		A name is taken from the targets as they were listed, and checked again by its key or
+		place, so segments renumbered while the dialog is up do not turn it into another.
+
 		:param text: a name from `targets`, or a segment number.
 		:param sizeText: for a place, the size chosen or typed.
 		:param atStart: for a place, before the pins already on that side.
@@ -297,17 +375,16 @@ class PinManager:
 			# Translators: reported when there is no object to pin.
 			return _("No object to monitor")
 		text = text.strip()
-		for target in self.targets():
-			if text.casefold() == target.name.casefold():
-				if target.isPlace:
-					return self._chooseIn(target, sizeText, atStart)
-				self.chosen = target
-				return None
-		found = re.search(r"\d+", text)
-		if found is None:
+		offered = self.offered or self.targets()
+		listed = next((target for target in offered if text.casefold() == target.name.casefold()), None)
+		if listed is not None:
+			if listed.isPlace:
+				return self._chooseListedPlace(listed, sizeText, atStart)
+			return self._chooseSegment(listed.key, sizeText, atStart)
+		if not text.isdigit():
 			# Translators: shown when the reader pressed Pin without choosing a segment or typing its number.
 			return _("Choose a segment, or type its number.")
-		number = int(found.group())
+		number = int(text)
 		container = self.plugin.container
 		if container is None:
 			# Translators: reported when a command needs segments but none are configured.
@@ -316,7 +393,28 @@ class PinManager:
 			# Translators: reported when a command names a segment that does not exist.
 			# The placeholder is replaced with the segment number.
 			return _("There is no segment {number}").format(number=number)
-		key = container.segments[number].key
+		return self._chooseSegment(container.segments[number].key, sizeText, atStart)
+
+	def _chooseListedPlace(self, listed: Target, sizeText: str, atStart: bool) -> str | None:
+		""":return: why the object cannot go in a place listed earlier, or None once it is chosen."""
+		area = self.plugin.offeredPlaces().get(listed.placeId)
+		if area is None:
+			# Translators: reported when a place to pin to is no longer on the display.
+			return _("That place is no longer on the display")
+		return self._chooseIn(dataclasses.replace(listed, area=area), sizeText, atStart)
+
+	def _chooseSegment(self, key: str, sizeText: str, atStart: bool) -> str | None:
+		""":return: why the object cannot go in one of the reader's segments, or None once it is chosen."""
+		container = self.plugin.container
+		if container is None:
+			# Translators: reported when a command needs segments but none are configured.
+			return _("BrlMultiline is not active")
+		try:
+			number = container.numberForKey(key)
+		except LookupError:
+			# Translators: reported when the segment chosen in the pinned objects dialog is no longer
+			# on the display, because the layout changed while the dialog was open.
+			return _("That segment is no longer on the display")
 		if key in self.plugin.pins:
 			# Translators: shown when the reader chose a segment that already holds a pinned object.
 			# The placeholder is the segment number.

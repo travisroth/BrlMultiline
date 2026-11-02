@@ -28,7 +28,7 @@ from .test_plugin import MONARCH_COLS, PluginTestCase  # noqa: E402
 
 from brlMultiline import pinDialog  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
-from brlMultiline.panels import SinglePanel  # noqa: E402
+from brlMultiline.panels import RowsPanel, SinglePanel  # noqa: E402
 from brlMultiline.pinDialog import PinManager  # noqa: E402
 
 
@@ -121,6 +121,25 @@ class TestChoosing(PinDialogTestCase):
 		"""Rather than replaced, so a reader never drops a pin without meaning to."""
 		self.pin(1)
 		self.assertIn("Release it first", self.manager().choose("1"))
+
+	def test_aNameChosenFromTheListKeepsItsSegmentWhenTheSegmentsAreNumberedAgain(self):
+		manager = self.manager()
+		listed = next(target for target in manager.targets() if target.key == "display.1")
+		self.plugin.activatePanel(RowsPanel("inserted", SegmentRect(0, 0, 2, MONARCH_COLS), [1, 1], reserve=False))
+		self.assertEqual(self.container.numberForKey("display.1"), 2)
+		self.assertIsNone(manager.choose(listed.name))
+		self.assertEqual(manager.chosenKey, "display.1")
+		manager.pinChosen()
+		self.assertIn("display.1", self.plugin.pins)
+
+	def test_aNameChosenFromTheListWhoseSegmentHasGoneIsRefused(self):
+		manager = self.manager()
+		listed = next(target for target in manager.targets() if target.key == "display.1")
+		self.plugin.activatePanel(SinglePanel("table", SegmentRect(0, 0, 4, MONARCH_COLS)))
+		self.assertIn("no longer on the display", manager.choose(listed.name))
+
+	def test_aNumberWithMoreTypedIsRefused(self):
+		self.assertIn("type its number", self.manager().choose("1.5"))
 
 
 class TestPinningAndReleasing(PinDialogTestCase):
@@ -280,6 +299,13 @@ class TestSizes(unittest.TestCase):
 
 	def test_aCountIsReadFromWhatIsChosen(self):
 		self.assertEqual(pinDialog.parseSize("3 rows"), 3)
+		self.assertEqual(pinDialog.parseSize("1 cell"), 1)
+		self.assertEqual(pinDialog.parseSize(" 7 "), 7)
+
+	def test_anythingElseIsRefusedRatherThanReadAsAnotherSize(self):
+		for typed in ("-3", "1.5", "0", "3 apples", "2 3"):
+			with self.subTest(typed=typed), self.assertRaises(ValueError):
+				pinDialog.parseSize(typed)
 
 	def test_aOneRowPlaceIsSizedInCells(self):
 		choices = pinDialog.sizeChoices(SegmentRect(8, 0, 1, 80))

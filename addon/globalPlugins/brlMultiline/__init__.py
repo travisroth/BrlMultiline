@@ -592,7 +592,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param numCols: number of columns on the display.
 		:param devices: the physical displays behind a composite one, empty for an ordinary one.
 		"""
-		view = self._activatedView(numRows, numCols, devices)
+		view = self.activatedView(numRows, numCols, devices)
 		if view is not None:
 			return view
 		view = self.configuredView(numRows, numCols, devices)
@@ -601,7 +601,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		areas = pinPlaces.placeAreas(view, devices)
 		return pinPlaces.withPlaces(view, self.places, areas, numRows, numCols)
 
-	def _activatedView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView | None:
+	def activatedView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView | None:
 		""":return: the view code activated, or None if there is none or it no longer fits."""
 		if self._activeView is None:
 			return None
@@ -1287,6 +1287,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def startMonitoring(self, segmentNumber: int, obj: "NVDAObject | None" = None) -> None:
 		"""Pin an object to a segment.
 
+		Pins set aside are shown again first, since segment numbers are those of the arrangement
+		they come back to.
+
 		:param segmentNumber: the segment to pin it to, as the per segment commands count
 			them. The pin itself is held by key, so it survives a later rebuild.
 		:param obj: the object to pin, or None for the navigator object.
@@ -1298,6 +1301,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: reported when asked to pin an object while the display is undivided.
 			ui.message(_("The display is not divided into segments, so there is nowhere to pin an object"))
 			return
+		if self._pinsAside is not None:
+			self.setPinsAside(False)
 		container = self.container
 		if container is None:
 			# Translators: reported when a command needs segments but none are configured.
@@ -1339,8 +1344,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def stopMonitoring(self, segmentNumber: int) -> None:
 		"""Stop pinning an object to a segment and clear it.
 
+		Pins set aside are shown again first. See `startMonitoring`.
+
 		:param segmentNumber: the segment to release.
 		"""
+		if self._pinsAside is not None:
+			self.setPinsAside(False)
 		container = self.container
 		if container is None:
 			return
@@ -1401,7 +1410,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except ValueError:
 			return {}
 		devices = deviceMap()
-		if self._activatedView(numRows, numCols, devices) is not None:
+		if self.activatedView(numRows, numCols, devices) is not None:
 			return {}
 		return pinPlaces.placeAreas(self.configuredView(numRows, numCols, devices), devices)
 
@@ -1466,6 +1475,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except pinPlaces.PlaceError as error:
 			ui.message(self.noRoomMessage(area, error.room))
 			return False
+		if not self.doPlacesFit():
+			self.places.remove(pin.key)
+			ui.message(self.noRoomMessage(area, None))
+			return False
+		flowWasClaimed = self._isFlowClaimed()
 		self._rearrange()
 		container = self.container
 		if container is None or not self._canKeepPin(container, pin.key):
@@ -1479,14 +1493,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		monitor.wantsColumns = wantsColumns(self.tableRequest.wanted, obj)
 		self._monitors[pin.key] = monitor
 		self.refreshMonitors(reveal=pin.key)
-		ui.message(
+		said = [
 			# Translators: reported when an object is pinned to a segment.
 			# Placeholders are the object's name and the segment number.
 			_("Monitoring {name} in segment {number}").format(
 				name=monitor.name,
 				number=container.numberForKey(pin.key),
 			),
-		)
+		]
+		if flowWasClaimed and not self._isFlowClaimed():
+			said.append(self._flowCrowdedOutMessage())
+		ui.message(". ".join(said))
 		return True
 
 	def resizePin(self, key: str, size: int | None) -> str | None:
@@ -1501,12 +1518,74 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if area is None:
 			# Translators: reported when a place to pin to is no longer on the display.
 			return _("That place is no longer on the display")
+		was = self.places.pinFor(key)
 		try:
 			self.places.resize(key, area, size)
 		except pinPlaces.PlaceError as error:
 			return self.noRoomMessage(area, error.room)
+		if not self.doPlacesFit():
+			self.places.resize(key, area, was.size if was is not None else None)
+			return self.noRoomMessage(area, None)
+		flowWasClaimed = self._isFlowClaimed()
 		self._rearrangeUnlessAside()
+		if flowWasClaimed and not self._isFlowClaimed():
+			ui.message(self._flowCrowdedOutMessage())
 		return None
+
+	def _isFlowClaimed(self) -> bool:
+		return self.flowBand is not None and self.flowBand.isClaimed
+
+	@staticmethod
+	def _flowCrowdedOutMessage() -> str:
+		# Translators: reported when pins take so many rows that the flow has too few to show in.
+		return _("The flow has too few rows left, so it is off until there is room")
+
+	def doPlacesFit(self) -> bool:
+		""":return: whether every pin in a place has a segment in the arrangement the places make.
+
+		Asked before a change to a place is kept, since a place that cannot be laid out is left
+		out of the arrangement and its pins are released. See `pinPlaces.withPlaces`.
+		"""
+		try:
+			numRows, numCols = self._displayDimensions()
+		except ValueError:
+			return True
+		devices = deviceMap()
+		if self.activatedView(numRows, numCols, devices) is not None:
+			return True
+		view = self.configuredView(numRows, numCols, devices)
+		placed = pinPlaces.withPlaces(
+			view,
+			self.places,
+			pinPlaces.placeAreas(view, devices),
+			numRows,
+			numCols,
+		)
+		return self.places.keys() <= {spec.key for spec in placed.flatten()}
+
+	def movePlacesWithFocus(self, leaving: str, arriving: str) -> list[str]:
+		"""Carry the places along when the focus moves to another display, before the rebuild.
+
+		See `pinPlaces.Places.followFocus`. Called once the focus segment is set, so the places'
+		areas are those the rebuild will lay them in.
+
+		:param leaving: the driver name of the display the focus was on.
+		:param arriving: the driver name of the display it is on now.
+		:return: the names of the pins with no room left, which are released.
+		"""
+		if not self.places.places:
+			return []
+		self.places.followFocus(leaving, arriving)
+		areas = self.placeAreas()
+		if not areas:
+			return []
+		names = []
+		for key in self.places.fitTo(areas):
+			monitor = self._monitors.pop(key, None) or (self._pinsAside or {}).pop(key, None)
+			if monitor is not None:
+				monitor.stop()
+				names.append(monitor.name)
+		return names
 
 	def shiftPin(self, key: str, by: int) -> bool:
 		"""Move a pin in a place earlier or later, past the focus too.

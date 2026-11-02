@@ -98,6 +98,17 @@ def rowText(region, rendered, rowIndex: int) -> str:
 	return raw[start:end]
 
 
+@dataclasses.dataclass(frozen=True)
+class ReadingPlace:
+	"""Where a flow is read to, to be put back after it is built again. See `FlowController.readingPlace`."""
+
+	position: Any = None
+	"""Where the text on the top row begins, in a document."""
+
+	obj: Any = None
+	"""The object at the top, in a run of objects, which has no positions."""
+
+
 class Arrival(enum.Enum):
 	"""What `FlowController._arrive` found when it brought the window to the reader."""
 
@@ -348,12 +359,41 @@ class FlowController(PanelOwner):
 		anchor = self.window.anchor
 		return None if anchor is None else (anchor.blockId, anchor.rowIndex)
 
+	def readingPlace(self) -> ReadingPlace | None:
+		""":return: where this flow is read to, or None if that cannot be told."""
+		if getattr(self.source, "positionOf", None) is not None:
+			position = self.topPosition()
+			return ReadingPlace(position=position) if position is not None else None
+		blockId = getattr(self.window.anchor, "blockId", None)
+		obj = getattr(self.regionFor(blockId), "obj", None) if blockId is not None else None
+		return ReadingPlace(obj=obj) if obj is not None else None
+
+	def enterAtPlace(self, place: ReadingPlace) -> bool:
+		"""Place the window afresh where `readingPlace` said an earlier flow was read to.
+
+		:return: whether anything is now on the display.
+		"""
+		if place.position is not None:
+			return self.enterAtPosition(place.position)
+		with self.operation():
+			self._owedAbove = 0
+			result = self.source.blockAtCursor(place.obj)
+			self.lastResult = result
+			if result.kind is not ResultKind.BLOCK or result.block is None:
+				log.debugWarning(f"A flow could not enter at an object: {result.kind} {result.message}")
+				return False
+			# No prompt above: the object was at the top, and goes back there.
+			self._enterAtBlock(result, 0, fill=False)
+			self.fill()
+			return True
+
 	def enterAtPosition(self, info) -> bool:
-		"""Place the window afresh with the block holding a position at its top.
+		"""Place the window afresh with the row holding a position at its top.
 
 		What a quick navigation key in a pin does with what it found: the place is set down at
 		the top and the document runs on from it, as `groundAt` does for the band, without the
-		cursor being involved. See `pinQuickNav`.
+		cursor being involved. See `pinQuickNav`. In a block wrapped over several rows, the row
+		the position is on goes to the top.
 
 		:param info: a position in this flow's document.
 		:return: whether anything is now on the display. False for a source that cannot read a
@@ -369,7 +409,35 @@ class FlowController(PanelOwner):
 			if result.kind is not ResultKind.BLOCK or result.block is None:
 				log.debugWarning(f"A flow could not enter at a position: {result.kind} {result.message}")
 				return False
-			return self._enterAtBlock(result, 0, True)
+			self._enterAtBlock(result, 0, fill=False)
+			blockId = getattr(self.window.anchor, "blockId", None)
+			row = self._rowHolding(blockId, info) if blockId is not None else None
+			if row:
+				self.window.enterAt(blockId, row)
+			self.fill()
+			return True
+
+	def _rowHolding(self, blockId: "BlockId", info) -> int | None:
+		""":return: the row of a rendered block whose text begins at or before a position and is the
+		last to, or None where that cannot be read."""
+		region = self.regionFor(blockId)
+		getInfo = getattr(region, "getTextInfoForBraillePos", None)
+		if getInfo is None or not self.window.hasBlock(blockId):
+			return None
+		rendered = self.window.blocks[self.window.blockIndex(blockId)]
+		found = None
+		for index, positions in enumerate(rendered.positions):
+			at = next((where for where in positions if where != NO_POSITION), None)
+			if at is None:
+				continue
+			try:
+				if getInfo(at).compareEndPoints(info, "startToStart") > 0:
+					break
+			except Exception:
+				log.debugWarning("Could not read where a row of a block begins", exc_info=True)
+				break
+			found = rendered.rowOffset + index
+		return found
 
 	def _enterAtBlock(self, result, contextRows: int, fill: bool) -> bool:
 		"""Start the window afresh from a block just read. See `_enterAtCursor`."""

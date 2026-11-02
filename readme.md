@@ -172,7 +172,10 @@ cells, and every pin keeps at least a quarter of the row. When a place already h
 "Before or after the pins there" says where the new one goes.
 To change a pin later, select it in the list: New size and Resize give it another size, and
 Move up and Move down change its order, past the focus too. The flow keeps to the rows the
-pins leave it, and stops while they leave it fewer than two.
+pins leave it, and stops while they leave it fewer than two; you're told when a pin or a new
+size stops it. With displays combined, moving the focus to the other display takes the places
+with it: the pins beside the focus go with the focus, and the pins on the display it moves to
+trade places with it, sharing their new display equally.
 
 **Set pins aside for now** when you want the whole display for a moment, for the focus, the
 flow or an application's layout. Check "Set pins aside for now" in the dialog, or assign a key

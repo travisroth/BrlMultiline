@@ -107,12 +107,13 @@ class ObjectMonitor:
 		self.segmentKey = segmentKey
 		self.regions: list["Region"] | None = None
 		"""The regions being shown, built on first refresh and kept thereafter."""
-		self.pinned = obj
-		"""The object the reader chose, before the tree interceptor was substituted for it.
+		self.pinned = obj if self.obj is obj else getattr(self.obj, "rootNVDAObject", None) or obj
+		"""The object the flow is built from: the one the reader chose, or the page's own root when
+		browse mode was substituted for it, which outlives the link or button the reader was on.
 
-		Kept because a flow does its own substituting: `flowBuild.buildController` asks
-		`documentFor` the same question `resolveTarget` asks, and handing it the answer
-		instead of the question loses the object the answer was about."""
+		An object rather than the tree interceptor because a flow does its own substituting:
+		`flowBuild.buildController` asks `documentFor` the same question `resolveTarget` asks,
+		and handing it the answer instead of the question loses the object the answer was about."""
 
 		self.controller = None
 		"""The flow reading this pin, when its segment has room for one. See `_asAFlow`."""
@@ -267,7 +268,7 @@ class ObjectMonitor:
 			return False
 		if place is not None:
 			try:
-				control.enterAtPosition(place)
+				control.enterAtPlace(place)
 			except Exception:
 				log.debugWarning(f"Could not put {self.name!r} back where it was read to", exc_info=True)
 		# Once, as the pin is made, so a band that filled exactly knows whether the run ends
@@ -280,11 +281,11 @@ class ObjectMonitor:
 		return True
 
 	def _readingPlace(self):
-		""":return: where the text at the top of this pin's flow begins, or None without a flow or a position."""
+		""":return: where this pin's flow is read to, or None without a flow. See `FlowController.readingPlace`."""
 		if self.controller is None:
 			return None
 		try:
-			return self.controller.topPosition()
+			return self.controller.readingPlace()
 		except Exception:
 			log.debugWarning(f"Could not read where {self.name!r} is read to", exc_info=True)
 			return None
@@ -475,8 +476,10 @@ class ObjectMonitor:
 		container.updateDisplay()
 
 	def isGone(self) -> bool:
-		""":return: whether the object chosen can no longer be read, as when its window has closed."""
+		""":return: whether what is pinned can no longer be read, as when its window has closed."""
 		try:
+			if self.obj is not self.pinned and not getattr(self.obj, "isAlive", True):
+				return True
 			self.pinned.role
 			handle = getattr(self.pinned, "windowHandle", None)
 		except Exception:

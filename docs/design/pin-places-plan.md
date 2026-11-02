@@ -66,8 +66,8 @@ released, so it always keeps at least one row.
 3. App layouts see these pins as the reader's pins and arrange only what is left, as the app
    layout plan's first rule says. A place that fills a display leaves an app layout nothing
    there, which is meant.
-4. The flow band shrinks to the rows left to it and stops below `FLOW_MIN_ROWS`. The Rows
-   control should say so when a size would stop it.
+4. The flow band shrinks to the rows left to it and stops below `FLOW_MIN_ROWS`. The reader
+   is told when a pin or a new size stops it.
 5. Segment numbers change as places are divided again, so the per segment commands are mainly
    for configured segments. The dialog is how a reader manages places.
 
@@ -146,9 +146,11 @@ What building it settled that the design left open, and where it differs.
 5. **A pin's key outlives the division.** Keys are `place.<id>.<n>`, numbered as pins are made,
    so dividing a place again changes rectangles and not keys, and a monitor stays filed under
    its key. A pin read as a flow is rebuilt at its new size and put back where the reader had
-   panned it to: `ObjectMonitor` reads the position at the top of the old flow and enters the new
-   one there, as a quick navigation key in a pin does. Found in testing, where a page shrinking
-   from eight rows to four went back to where the caret was.
+   panned it to: `FlowController.readingPlace` takes the position at the top of the old flow, or
+   for a run of objects the object at the top, and `enterAtPlace` enters the new one there. In a
+   paragraph wrapped over several rows, the row holding that position goes to the top, not the
+   paragraph's first row. Found in testing, where a page shrinking from eight rows to four went
+   back to where the caret was.
 6. **Pins are held while the display makes way for them.** The flow band and an app layout were
    claimed for the arrangement before the change, and for one rebuild they can cover a pin's new
    segment. `GlobalPlugin._rearrange` holds every pin that rebuild drops and files it again once
@@ -162,7 +164,26 @@ What building it settled that the design left open, and where it differs.
    While pins are set aside the dialog offers only places, since segment numbers would be those
    of the undivided display.
 8. **Gone is unreadable.** `ObjectMonitor.isGone` is an object that raises when read, or whose
-   window Windows no longer has.
+   window Windows no longer has. A page pinned in browse mode is held by the page's root object
+   and its tree interceptor, not by the link or button the reader was on, so a page whose links
+   change is not taken for gone.
 9. **Commands.** Setting pins aside has its own unassigned command, beside the dialog's check
    box. The per segment release command releases a pin in a place too, and the place shares its
-   room among those left.
+   room among those left. The per segment pin and release commands show pins set aside again
+   first, as the dialog does when pinning, since their numbers are those of the arrangement the
+   pins come back to.
+10. **A change is checked before it is kept.** `GlobalPlugin.doPlacesFit` lays the places out
+    before a new pin or a new size is kept, since a place that cannot be laid out is left out
+    and every pin in it released. A change that does not fit is refused, and the pins stay as
+    they were.
+11. **The focus moving between displays takes the places with it.** Places are laid over the
+    configured view, so which displays the focus can move to is asked of that view. The focus
+    place goes with the focus, and the place on the display the focus arrives at goes to the
+    display it left, the two trading as a pin in a segment does (`Places.followFocus`). Both go
+    back to sharing equally, since a size in rows means nothing on a display of one row. A pin
+    with no room where it lands is released, the last first, and the reader is told.
+12. **The dialog chooses by key.** `PinManager` keeps the targets it listed, and a name chosen
+    from them is checked again by its key or place, so segments numbered again while the dialog
+    is up do not turn the choice into another segment. A typed segment number or size is a bare
+    whole number, or a size as the list words it; anything else is refused rather than read as
+    some other number.
