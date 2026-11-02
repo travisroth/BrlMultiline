@@ -3,10 +3,11 @@
 # Copyright (C) 2026 Travis Roth <travis@travisroth.com>
 # This file is covered by the GNU General Public License version 2.
 
-"""The picture the viewer draws, worked out from cells, displays, segments and drawings.
+"""The picture the viewer draws, where it draws it, and what pointing at it does.
 
-Imports nothing from NVDA, so every rule here is unit tested; `viewer` gathers the inputs and
-`viewerWindow` paints the result. See docs/design/braille-viewer-plan.md, The viewer.
+Worked out from cells, displays, segments and drawings. Imports nothing from NVDA, so every rule
+here is unit tested; `viewer` gathers the inputs and `viewerWindow` paints the result and times
+the hover. See docs/design/braille-viewer-plan.md, The viewer.
 """
 
 from __future__ import annotations
@@ -104,6 +105,11 @@ class Picture:
 		""":return: the dots of one cell, 0 for any cell NVDA did not write."""
 		index = row * self.numCols + col
 		return self.cells[index] if 0 <= col < self.numCols and 0 <= index < len(self.cells) else 0
+
+	@property
+	def shape(self) -> tuple:
+		""":return: the display's size and its members' places, which a pointer's target depends on."""
+		return (self.numRows, self.numCols, tuple(self.members))
 
 	def memberForRow(self, row: int) -> Member | None:
 		for member in self.members:
@@ -246,3 +252,160 @@ def routingIndex(picture: Picture, position: CellPosition) -> int | None:
 def memberCellIndex(member: Member, position: CellPosition) -> int:
 	""":return: the cell index on the member's own display, as its routing keys number it."""
 	return (position.row - member.rowStart) * member.numCols + position.col
+
+
+MARGIN = 8
+ROW_GAP = 2
+MEMBER_GAP = 12
+
+
+class Box(NamedTuple):
+	"""A rectangle of the viewer, in pixels."""
+
+	x: float
+	y: float
+	width: float
+	height: float
+
+
+class ViewerLayout:
+	"""Where each member, row, cell and pin of a picture is drawn, for painting and for pointing.
+
+	A row is a line of braille and the line of text under it. A member drawn as pins has square pin
+	spacing instead, a cell's width over its pin columns, so a drawing keeps its shape; its rows
+	are as tall as their pins make them.
+	"""
+
+	def __init__(self, picture: Picture, cellWidth: int, cellHeight: int, labelHeight: int):
+		"""
+		:param picture: what is drawn.
+		:param cellWidth: pixels across one braille character.
+		:param cellHeight: pixels down one line of the braille font.
+		:param labelHeight: pixels down a member's label, with its gap.
+		"""
+		self.picture = picture
+		self.cellWidth = cellWidth
+		self.cellHeight = cellHeight
+		self.textRowHeight = cellHeight * 2 + ROW_GAP
+		self.memberTops: list[tuple[Member, float]] = []
+		self.rowTops: list[float] = []
+		self.rowHeights: list[float] = []
+		y: float = MARGIN
+		members = picture.members or (Member("", "", 0, picture.numRows, picture.numCols),)
+		for member in members:
+			self.memberTops.append((member, y))
+			y += labelHeight
+			step = self.pinStep(member)
+			band = picture.pinBandFor(member)
+			height = band.pinsPerRow * step if step is not None and band is not None else self.textRowHeight
+			for _row in range(member.numRows):
+				self.rowTops.append(y)
+				self.rowHeights.append(height)
+				y += height
+			y += MEMBER_GAP
+		self.height = int(y + 0.5)
+		self.width = MARGIN * 2 + cellWidth * picture.numCols
+
+	def pinStep(self, member: Member) -> float | None:
+		""":return: pixels from one pin to the next, both ways, for a member drawn as pins; else None."""
+		band = self.picture.pinBandFor(member)
+		if band is None or not band.pinsPerCol or not self.picture.showsPins(member):
+			return None
+		return self.cellWidth / band.pinsPerCol
+
+	def cellBox(self, row: int, col: int) -> Box:
+		""":return: where one cell is drawn."""
+		return Box(MARGIN + col * self.cellWidth, self.rowTops[row], self.cellWidth, self.rowHeights[row])
+
+	def pinCentre(self, member: Member, x: int, y: int) -> tuple[float, float]:
+		""":return: where the centre of one of a member's pins is drawn. The member must be drawn as pins."""
+		step = self.pinStep(member) or 0.0
+		return MARGIN + (x + 0.5) * step, self.rowTops[member.rowStart] + (y + 0.5) * step
+
+	def position(self, x: float, y: float) -> CellPosition | None:
+		""":return: the cell at a point, with the pin where its member is drawn as pins; None for none."""
+		if x < MARGIN:
+			return None
+		for row, top in enumerate(self.rowTops):
+			if not top <= y < top + self.rowHeights[row]:
+				continue
+			member = self.picture.memberForRow(row)
+			step = self.pinStep(member) if member is not None else None
+			band = self.picture.pinBandFor(member) if member is not None else None
+			if member is None or step is None or band is None:
+				col = int((x - MARGIN) // self.cellWidth)
+				return CellPosition(row, col) if 0 <= col < self.picture.numCols else None
+			pinX = int((x - MARGIN) // step)
+			pinY = int((y - self.rowTops[member.rowStart]) // step)
+			if not (0 <= pinX < band.pinWidth and 0 <= pinY < band.pinHeight):
+				return None
+			cellRow = member.rowStart + min(pinY // band.pinsPerRow, member.numRows - 1)
+			return CellPosition(cellRow, pinX // band.pinsPerCol, (pinX, pinY))
+		return None
+
+
+class HoverTracker:
+	"""Which cell the pointer rests on, and which it has already routed, as NVDA's viewer keeps them.
+
+	A routed cell does not route again until the pointer leaves it. A wait is dropped when the cell
+	under it stops being the same cell of the same display.
+	"""
+
+	def __init__(self):
+		self.pending: CellPosition | None = None
+		"""The cell waited on, or None."""
+		self._pendingMember: str | None = None
+		self._routed: tuple[int, int] | None = None
+
+	def move(self, picture: Picture, position: CellPosition | None) -> bool:
+		"""Note where the pointer is.
+
+		:param picture: what is shown.
+		:param position: the cell under the pointer, or None.
+		:return: whether a new wait has begun, for the caller to time.
+		"""
+		if position is None or routingIndex(picture, position) is None:
+			self.leave()
+			return False
+		cell = (position.row, position.col)
+		if cell == self._routed:
+			return False
+		if self.pending is not None and cell == (self.pending.row, self.pending.col):
+			# The same cell. A different pin of it still points the touch at the latest pin.
+			self.pending = position
+			return False
+		self._routed = None
+		self.pending = position
+		self._pendingMember = _memberName(picture, position.row)
+		return True
+
+	def activate(self, picture: Picture) -> CellPosition | None:
+		""":return: the cell to route now the wait is over, or None where it no longer means the same cell."""
+		position, self.pending = self.pending, None
+		if position is None or routingIndex(picture, position) is None:
+			return None
+		if _memberName(picture, position.row) != self._pendingMember:
+			return None
+		self._routed = (position.row, position.col)
+		return position
+
+	def leave(self) -> None:
+		"""Forget the pointer, as when it leaves the cells or hover routing is turned off."""
+		self.pending = None
+		self._pendingMember = None
+		self._routed = None
+
+	def pictureChanged(self, old: Picture, new: Picture) -> bool:
+		"""Forget the pointer if the display under it changed shape or members.
+
+		:return: whether it was forgotten, for the caller to stop its timer.
+		"""
+		if old.shape == new.shape:
+			return False
+		self.leave()
+		return True
+
+
+def _memberName(picture: Picture, row: int) -> str | None:
+	member = picture.memberForRow(row)
+	return member.name if member is not None else None

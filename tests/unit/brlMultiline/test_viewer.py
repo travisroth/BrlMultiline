@@ -12,6 +12,7 @@ import unittest
 
 from ._stubs import (
 	FakeBrailleHandler,
+	callAfterQueue,
 	callLaterQueue,
 	fakeVirtualDisplay,
 	installStubs,
@@ -28,6 +29,7 @@ import inputCore  # noqa: E402
 from brlMultiline import graphics  # noqa: E402
 from brlMultiline.graphics import GraphicsSurface, PinRect  # noqa: E402
 from brlMultiline.layout import SegmentRect  # noqa: E402
+from brlMultiline import viewer  # noqa: E402
 from brlMultiline.viewer import BrailleViewerTool  # noqa: E402
 from brlMultiline.viewerModel import CellPosition  # noqa: E402
 
@@ -193,6 +195,62 @@ class TestLifetime(ViewerTestCase):
 		self.tool.terminate()
 		self.assertEqual(pre_writeCells.handlers, [])
 		self.assertNotIn(self.tool._onOverlay, graphics.overlayChanged.handlers)
+
+
+class TestAfterTerminate(ViewerTestCase):
+	"""Nothing queued before the plugin let go acts after it."""
+
+	def test_theStartupOpeningIsDropped(self):
+		self.tool.terminate()
+		tool = BrailleViewerTool(self.tool.plugin)
+		shouldOpen = viewer.bmConfig.shouldOpenViewerAtStartup
+		self.addCleanup(setattr, viewer.bmConfig, "shouldOpenViewerAtStartup", shouldOpen)
+		viewer.bmConfig.shouldOpenViewerAtStartup = lambda: True
+		tool.install()
+		tool.terminate()
+		callAfterQueue.flush()
+		self.assertFalse(tool.isOpen)
+
+	def test_theSimulatedModeMessageIsDropped(self):
+		self.display.simulatedMode = True
+		self.tool.afterRebuild()
+		self.tool.terminate()
+		callLaterQueue.fire()
+		self.assertEqual(spokenMessages, [])
+
+	def test_theMessageIsDroppedForADisplayNoLongerThere(self):
+		self.display.simulatedMode = True
+		self.tool.afterRebuild()
+		self.handler.display = types.SimpleNamespace(name=FOCUS, numRows=1, numCols=80, numCells=80)
+		callLaterQueue.fire()
+		self.assertEqual(spokenMessages, [])
+
+
+class TestGuards(ViewerTestCase):
+	def test_nothingRoutesWhileLocked(self):
+		picture = self.tool.picture()
+		self.tool.onSessionLock(True)
+		self.tool.route(picture, CellPosition(2, 5))
+		self.assertEqual(self.simulated.calls, [])
+
+	def test_everyWriteRepaintsEvenWithTheSameCells(self):
+		refreshes = []
+		self.tool._window = types.SimpleNamespace(refresh=lambda: refreshes.append(True), closeQuietly=lambda: None)
+		pre_writeCells.notify(cells=[1], rawText="a")
+		pre_writeCells.notify(cells=[1], rawText="A")
+		self.assertEqual(len(refreshes), 2)
+
+	def test_displayNamesAreReadOncePerDisplayChange(self):
+		reads = []
+		original = viewer.displayDescriptions
+		self.addCleanup(setattr, viewer, "displayDescriptions", original)
+		viewer.displayDescriptions = lambda: reads.append(True) or original()
+		self.tool.picture()
+		self.tool.picture()
+		self.assertEqual(len(reads), 1)
+		self.tool.afterRebuild()
+		self.tool.picture()
+		self.assertEqual(len(reads), 2)
 
 
 class TestSegmentRowTexts(unittest.TestCase):

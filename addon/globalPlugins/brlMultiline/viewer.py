@@ -68,7 +68,12 @@ class BrailleViewerTool:
 		"""Each extension point registered on, with its handler, to unregister on terminate."""
 		self._announcedFor: int | None = None
 		"""The display last told to be simulated, by identity, so a rebuild does not say it again."""
+		self._announceTimer = None
+		self._labels: dict[str, str] | None = None
+		"""Each display's name, read once per display change rather than on every paint."""
 		self._locked = False
+		self._terminated = False
+		"""Set once the plugin has let go of this, so nothing queued before then acts after it."""
 
 	# Lifetime
 
@@ -87,6 +92,10 @@ class BrailleViewerTool:
 
 	def terminate(self) -> None:
 		"""Close the window and stop listening. Safe to call more than once."""
+		self._terminated = True
+		if self._announceTimer is not None:
+			self._announceTimer.Stop()
+			self._announceTimer = None
 		self.close()
 		for action, handler in self._listening:
 			try:
@@ -114,10 +123,11 @@ class BrailleViewerTool:
 		return self.open()
 
 	def open(self) -> bool:
-		""":return: whether the viewer is open, which it cannot be in a secure session."""
+		""":return: whether the viewer is open, which it cannot be in a secure session or after
+		`terminate`."""
 		if self._window is not None:
 			return True
-		if _isSecure():
+		if self._terminated or _isSecure():
 			return False
 		from .viewerWindow import ViewerFrame
 
@@ -141,20 +151,32 @@ class BrailleViewerTool:
 
 	def afterRebuild(self) -> None:
 		"""Called after the plugin builds the display again: say once that it is simulated, and repaint."""
-		display = braille.handler.display if braille.handler is not None else None
+		self._labels = None
+		display = _currentDisplay()
 		if devices.isSimulatedMode(display) and id(display) != self._announcedFor:
 			self._announcedFor = id(display)
 			log.info("BrlMultiline: the combined display has no displays set up, and is simulating one")
-			wx.CallLater(
-				SIMULATED_MODE_DELAY,
-				ui.message,
-				# Translators: said when the combined braille display has no displays set up and is
-				# simulating one instead, for testing without hardware.
-				_(
-					"BrlMultiline is simulating a braille display. Open the BrlMultiline viewer in the Tools menu to see it.",
-				),
-			)
+			if self._announceTimer is not None:
+				self._announceTimer.Stop()
+			self._announceTimer = wx.CallLater(SIMULATED_MODE_DELAY, self._announceSimulated, id(display))
 		self.refresh()
+
+	def _announceSimulated(self, displayId: int) -> None:
+		"""Say the display is simulated, if it is still the display that was.
+
+		:param displayId: the identity of the display found to be simulated.
+		"""
+		self._announceTimer = None
+		display = _currentDisplay()
+		if self._terminated or id(display) != displayId or not devices.isSimulatedMode(display):
+			return
+		ui.message(
+			# Translators: said when the combined braille display has no displays set up and is
+			# simulating one instead, for testing without hardware.
+			_(
+				"BrlMultiline is simulating a braille display. Open the BrlMultiline viewer in the Tools menu to see it.",
+			),
+		)
 
 	def onSessionLock(self, isNowLocked: bool) -> None:
 		"""Show nothing while Windows is locked, as NVDA's viewer shows nothing.
@@ -178,7 +200,9 @@ class BrailleViewerTool:
 			return Picture(0, 0, ())
 		dimensions = handler.displayDimensions
 		numRows, numCols = dimensions.numRows, dimensions.numCols
-		labels = displayDescriptions()
+		if self._labels is None:
+			self._labels = displayDescriptions()
+		labels = self._labels
 		members = tuple(
 			Member(
 				device.driverName,
@@ -237,9 +261,13 @@ class BrailleViewerTool:
 		A simulated display presses its own key, so its layers apply, and is touched at the pin
 		first where it is drawn as pins. Any other display's cell is routed as NVDA's viewer routes.
 
+		Nothing while Windows is locked or after `terminate`, whatever the window was showing.
+
 		:param picture: what the window was showing.
 		:param position: the cell, and the pin where there is one.
 		"""
+		if self._locked or self._terminated:
+			return
 		index = routingIndex(picture, position)
 		if index is None:
 			return
@@ -262,10 +290,9 @@ class BrailleViewerTool:
 	# Listeners
 
 	def _onCells(self, cells=None, **kwargs) -> None:
-		cells = tuple(cells or ())
-		if cells == self._cells:
-			return
-		self._cells = cells
+		# Refreshed on every write, not only when the cells change: the text under them can change
+		# while the cells stay the same, and the window collapses requests into one repaint.
+		self._cells = tuple(cells or ())
 		self.refresh()
 
 	def _onOverlay(self, surface=None, key=None, rect=None, buffer=None, **kwargs) -> None:
@@ -357,8 +384,12 @@ def _simulatedDriver(member: Member | None):
 	""":return: the simulated display behind a member, or None for real hardware."""
 	if member is None or member.name not in devices.SIMULATED_DRIVER_NAMES:
 		return None
-	handler = braille.handler
-	display = handler.display if handler is not None else None
-	slotFor = getattr(display, "slotForDriverName", None)
+	slotFor = getattr(_currentDisplay(), "slotForDriverName", None)
 	slot = slotFor(member.name) if slotFor is not None else None
 	return getattr(slot, "driver", None)
+
+
+def _currentDisplay():
+	""":return: the display NVDA is driving, or None."""
+	handler = braille.handler
+	return handler.display if handler is not None else None

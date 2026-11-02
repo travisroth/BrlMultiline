@@ -249,7 +249,10 @@ panel. Simulated and real displays go the same way, so there is one composition 
 A member is drawn as pins only while it has a drawing up, and as braille characters otherwise,
 which a sighted reader reads faster. The pins are dots at the member's own pitch,
 `GraphicsSurface.pinsPerRow` and `pinsPerCol`, so a Monarch at 8 lines shows the blank dot row
-between braille lines.
+between braille lines. They are as far apart down as across, a cell's width over its pin columns,
+so a drawing keeps its shape; the member's rows are as tall as their pins make them, not as tall
+as a line of braille and its text. `viewerModel.ViewerLayout` is the one transform both painting
+and pointing use.
 
 ### Drawing it
 
@@ -261,9 +264,11 @@ viewer looks like NVDA's.
 ### What is borrowed from NVDA's viewer
 
 1. The font and `fonts.importFonts()`.
-2. Hover routing: NVDA's hover delay setting, `brailleViewer.secondsOfHoverToActivate`, and its
-   colours. Not `TextCellHover` itself, which is bound to a text control; the window does the same
-   in a few lines with a `wx.CallLater`.
+2. Hover routing: NVDA's hover delay setting, `brailleViewer.secondsOfHoverToActivate`, its
+   colours, and its rule that a routed cell does not route again until the pointer leaves it. Not
+   `TextCellHover` itself, which is bound to a text control; `viewerModel.HoverTracker` keeps the
+   same state, and also drops a wait whose cell no longer belongs to the same display, which a
+   repaint between the pointer resting and the timer firing could otherwise change under it.
 3. `BrailleViewerGesture_RouteTo(index)`, for a real display. The index is a position on the whole
    display, and `DisplayContainer.routeTo` already turns that into a segment and a position within
    it, so routing across rows, segments and members needs no new routing code.
@@ -277,6 +282,15 @@ minimize it, and it has no minimize button to undo that. The cause was not found
 restores itself without taking the focus whenever it finds itself minimized as it opens or
 resizes (`ViewerFrame._showNormal`), and logs that it did. It does not save a minimized window's
 position, and ignores a saved position that is on no monitor.
+
+### Lifetime
+
+`BrailleViewerTool` is marked terminated when the plugin lets it go, and nothing queued before
+then acts after it: the opening at startup, and the simulated mode message, which is also dropped
+if the display it was about has gone. Routing is refused while Windows is locked, whatever picture
+the window last had. Every cell write asks for a repaint, since the text under the cells can change
+while the cells do not; the window collapses those requests into one. Display names are read once
+per display change, not on every paint.
 
 ### NVDA's own viewer
 
@@ -311,7 +325,9 @@ It ships with few bindings:
 
 1. Up and down arrow scroll back and forward, NVDA's `braille_scrollBack` and
    `braille_scrollForward`.
-2. Left and right arrow are the Monarch's zoom keys, out and in. They do what the zoom keys do
+2. G draws the navigator object as a picture (`drawPicture`), as space with dots 1, 4 and 7 does
+   on the Monarch. Asked for by the reader, 2 November 2026, so a tester can put a drawing up at all.
+3. Left and right arrow are the Monarch's zoom keys, out and in. They do what the zoom keys do
    in the layer that is on: in a table they turn its pages (`flowPreviousColumns`,
    `flowNextColumns`), with a drawing they zoom (`graphicsZoomOut`, `graphicsZoomIn`), and on
    unwrapped lines they pan them (`flowPanLinesLeft`, `flowPanLinesRight`).

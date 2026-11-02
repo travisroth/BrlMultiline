@@ -12,13 +12,16 @@ installStubs()
 
 from brlMultiline.layout import SegmentRect  # noqa: E402
 from brlMultiline.viewerModel import (  # noqa: E402
+	MARGIN,
 	CellPosition,
+	HoverTracker,
 	Member,
 	Overlay,
 	OverlayStore,
 	PinBand,
 	Picture,
 	Segment,
+	ViewerLayout,
 	brailleCharacter,
 	memberCellIndex,
 	routingIndex,
@@ -170,6 +173,88 @@ class TestOverlayStore(unittest.TestCase):
 		store.apply("dotPad", "chart", Overlay(0, 0, "b"))
 		store.keepOnly({"dotPad"})
 		self.assertEqual(set(store.snapshot()), {"dotPad"})
+
+
+class TestLayout(unittest.TestCase):
+	"""Where things are drawn and what a point lands on, one transform for both."""
+
+	def drawn(self):
+		return composite(overlays={MONARCH.name: (Overlay(0, 0, buffer(["O"])),)})
+
+	def test_pinsAreSpacedTheSameBothWays(self):
+		# A character twice as tall as it is wide, which would stretch a drawing if rows set the scale.
+		layout = ViewerLayout(self.drawn(), cellWidth=12, cellHeight=24, labelHeight=16)
+		step = layout.pinStep(MONARCH)
+		self.assertEqual(step, 4)
+		first = layout.pinCentre(MONARCH, 0, 0)
+		self.assertEqual(layout.pinCentre(MONARCH, 1, 0)[0] - first[0], step)
+		self.assertEqual(layout.pinCentre(MONARCH, 0, 1)[1] - first[1], step)
+		self.assertEqual(layout.rowHeights[0], 5 * step)
+
+	def test_aDrawnPinIsWhereThePointerFindsIt(self):
+		layout = ViewerLayout(self.drawn(), cellWidth=12, cellHeight=24, labelHeight=16)
+		x, y = layout.pinCentre(MONARCH, 16, 11)
+		self.assertEqual(layout.position(x, y), CellPosition(2, 5, (16, 11)))
+
+	def test_aMemberWithoutADrawingIsTextRows(self):
+		layout = ViewerLayout(composite(), cellWidth=12, cellHeight=24, labelHeight=16)
+		self.assertIsNone(layout.pinStep(MONARCH))
+		self.assertEqual(layout.rowHeights[0], 24 * 2 + 2)
+		box = layout.cellBox(8, 5)
+		self.assertEqual(layout.position(box.x + 1, box.y + 1), CellPosition(8, 5))
+
+	def test_offTheCellsIsNoCell(self):
+		layout = ViewerLayout(composite(), cellWidth=12, cellHeight=24, labelHeight=16)
+		self.assertIsNone(layout.position(MARGIN - 1, layout.rowTops[0]))
+		self.assertIsNone(layout.position(MARGIN + 12 * 80, layout.rowTops[0]))
+
+
+class TestHover(unittest.TestCase):
+	"""A resting pointer routes once per cell, and only to the cell it rested on."""
+
+	def setUp(self):
+		self.picture = composite()
+		self.tracker = HoverTracker()
+
+	def test_aRoutedCellDoesNotRouteAgainUntilLeft(self):
+		self.assertTrue(self.tracker.move(self.picture, CellPosition(0, 2)))
+		self.assertEqual(self.tracker.activate(self.picture), CellPosition(0, 2))
+		self.assertFalse(self.tracker.move(self.picture, CellPosition(0, 2)))
+		self.assertIsNone(self.tracker.pending)
+		self.tracker.move(self.picture, CellPosition(0, 3))
+		self.assertTrue(self.tracker.move(self.picture, CellPosition(0, 2)))
+
+	def test_anotherCellRoutesAfterTheFirst(self):
+		self.tracker.move(self.picture, CellPosition(0, 2))
+		self.tracker.activate(self.picture)
+		self.assertTrue(self.tracker.move(self.picture, CellPosition(0, 3)))
+		self.assertEqual(self.tracker.activate(self.picture), CellPosition(0, 3))
+
+	def test_aDeadCellIsNotWaitedOn(self):
+		self.assertFalse(self.tracker.move(self.picture, CellPosition(0, 40)))
+		self.assertIsNone(self.tracker.pending)
+
+	def test_leavingDropsTheWait(self):
+		self.tracker.move(self.picture, CellPosition(0, 2))
+		self.tracker.leave()
+		self.assertIsNone(self.tracker.activate(self.picture))
+
+	def test_anotherDisplayInTheSamePlaceDropsTheWait(self):
+		self.tracker.move(self.picture, CellPosition(0, 2))
+		replaced = composite(members=(MONARCH._replace(name="anotherDisplay"), FOCUS))
+		self.assertTrue(self.tracker.pictureChanged(self.picture, replaced))
+		self.assertIsNone(self.tracker.activate(replaced))
+
+	def test_aCellThatChangedDisplayIsNotRouted(self):
+		# Missed by `pictureChanged`, as when the window repaints between the move and the timer.
+		self.tracker.move(self.picture, CellPosition(0, 2))
+		replaced = composite(members=(MONARCH._replace(name="anotherDisplay"), FOCUS))
+		self.assertIsNone(self.tracker.activate(replaced))
+
+	def test_newCellsOnTheSameDisplayKeepTheWait(self):
+		self.tracker.move(self.picture, CellPosition(0, 2))
+		self.assertFalse(self.tracker.pictureChanged(self.picture, composite([1] * 9 * 80)))
+		self.assertEqual(self.tracker.activate(self.picture), CellPosition(0, 2))
 
 
 if __name__ == "__main__":

@@ -1035,9 +1035,10 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				**keypad(("numpad5", "numLockNumpad5"), command("reportCurrentLine")),
 			},
 		)
-		# The arrows a tester uses for a simulated display's keys: up and down pan, left and right are the
-		# zoom keys, pressed as the display's own so its layers decide them. Stays on, since the arrows
-		# are wanted again and again.
+		# The keys a tester uses for a simulated display: up and down pan, left and right are the zoom
+		# keys, pressed as the display's own so its layers decide them, and g draws the navigator object
+		# as a picture, as space with dots 1, 4 and 7 does on the Monarch. Stays on, since the keys are
+		# wanted again and again.
 		simulatedDisplay = SIMULATED_DISPLAYS[0]
 		simulated = newLayer(
 			device,
@@ -1051,6 +1052,7 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				),
 				normalize("kb:leftArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomOut"),
 				normalize("kb:rightArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomIn"),
+				normalize("kb:g"): plugin("drawPicture", simulatedDisplay),
 			},
 		)
 		return [default, graphics, simulated]

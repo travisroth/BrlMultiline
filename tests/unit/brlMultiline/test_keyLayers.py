@@ -716,6 +716,8 @@ class TestSimulatedDisplays(unittest.TestCase):
 			layer.bindings[normalize("kb:leftArrow")],
 			Target.displayKey(f"br({self.SIMULATED}):zoomOut"),
 		)
+		draw = layer.bindings[normalize("kb:g")]
+		self.assertEqual((draw.scriptName, draw.actsFor), ("drawPicture", self.SIMULATED))
 
 	def test_aDisplayKeyIsStoredAndReadBack(self):
 		target = Target.displayKey(f"br({self.SIMULATED}):zoomIn")

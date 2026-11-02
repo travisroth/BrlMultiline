@@ -7,7 +7,9 @@
 
 A painted panel rather than a text control, since a text control cannot outline segments, grey
 out cells or draw pins. Hover routes, as in NVDA's viewer, since a click would move the focus to
-this window and change what is on the display. See docs/design/braille-viewer-plan.md, The viewer.
+this window and change what is on the display. Where things are drawn, and what a resting pointer
+may route, are `viewerModel.ViewerLayout` and `viewerModel.HoverTracker`; this times and paints.
+See docs/design/braille-viewer-plan.md, The viewer.
 """
 
 from __future__ import annotations
@@ -21,7 +23,16 @@ import wx
 from logHandler import log
 
 from . import bmConfig
-from .viewerModel import CellPosition, Member, Picture, brailleCharacter, routingIndex
+from .viewerModel import (
+	MARGIN,
+	ROW_GAP,
+	CellPosition,
+	HoverTracker,
+	Member,
+	Picture,
+	ViewerLayout,
+	brailleCharacter,
+)
 
 addonHandler.initTranslation()
 
@@ -29,9 +40,6 @@ BRAILLE_FONT = "FreeMono-FixedBraille"
 """The font NVDA's viewer installs and uses, whose braille and text characters are one width."""
 
 FONT_SIZE = 20
-ROW_GAP = 2
-MEMBER_GAP = 12
-MARGIN = 8
 FLASH_SECONDS = 0.4
 SW_SHOWNOACTIVATE = 4
 PENDING_COLOUR = wx.Colour(255, 205, 60)
@@ -52,57 +60,6 @@ class ViewerSource(Protocol):
 	def windowClosed(self) -> None: ...
 
 
-class _Layout:
-	"""Where each row and member of a picture is drawn, for painting and for hit testing."""
-
-	def __init__(self, picture: Picture, cellWidth: int, cellHeight: int, labelHeight: int):
-		self.picture = picture
-		self.cellWidth = cellWidth
-		self.cellHeight = cellHeight
-		self.rowHeight = cellHeight * 2 + ROW_GAP
-		"""A line of braille and the line of text under it."""
-		self.labelHeight = labelHeight
-		self.rowTops: list[int] = []
-		self.memberTops: list[tuple[Member, int]] = []
-		y = MARGIN
-		members = picture.members or (Member("", "", 0, picture.numRows, picture.numCols),)
-		for member in members:
-			self.memberTops.append((member, y))
-			y += labelHeight
-			for _row in range(member.numRows):
-				self.rowTops.append(y)
-				y += self.rowHeight
-			y += MEMBER_GAP
-		self.height = y
-		self.width = MARGIN * 2 + cellWidth * picture.numCols
-
-	def left(self, col: int) -> int:
-		return MARGIN + col * self.cellWidth
-
-	def position(self, x: int, y: int) -> CellPosition | None:
-		""":return: the cell, and the pin where its member is drawn as pins, at a point; None for none."""
-		col = (x - MARGIN) // self.cellWidth if x >= MARGIN else -1
-		if not 0 <= col < self.picture.numCols:
-			return None
-		for row, top in enumerate(self.rowTops):
-			if top <= y < top + self.rowHeight:
-				return CellPosition(row, col, self._pin(row, x, y))
-		return None
-
-	def _pin(self, row: int, x: int, y: int) -> tuple[int, int] | None:
-		picture = self.picture
-		member = picture.memberForRow(row)
-		if member is None or not picture.showsPins(member):
-			return None
-		band = picture.pinBandFor(member)
-		if band is None:
-			return None
-		bandTop = self.rowTops[member.rowStart]
-		pinX = int((x - MARGIN) * band.pinsPerCol / self.cellWidth)
-		pinY = int((y - bandTop) * band.pinsPerRow / self.rowHeight)
-		return pinX, pinY
-
-
 class ViewerFrame(wx.Frame):
 	"""The viewer window. Shown without taking the focus, and kept on top."""
 
@@ -120,9 +77,10 @@ class ViewerFrame(wx.Frame):
 		)
 		self._source = source
 		self._picture = Picture(0, 0, ())
-		self._layout: _Layout | None = None
-		self._pending: CellPosition | None = None
+		self._layout: ViewerLayout | None = None
+		self._hoverTracker = HoverTracker()
 		self._routed: CellPosition | None = None
+		"""The cell just routed, flashed for a moment."""
 		self._hoverTimer: wx.CallLater | None = None
 		self._flashTimer: wx.CallLater | None = None
 		self._refreshQueued = False
@@ -185,11 +143,14 @@ class ViewerFrame(wx.Frame):
 		if self._closing:
 			return
 		try:
-			self._picture = self._source.picture()
+			picture = self._source.picture()
 		except Exception:
 			log.error("BrlMultiline: could not read what the viewer should show", exc_info=True)
 			return
-		layout = self._makeLayout(self._picture)
+		if self._hoverTracker.pictureChanged(self._picture, picture):
+			self._stopHoverTimer()
+		self._picture = picture
+		layout = self._makeLayout(picture)
 		resized = self._layout is None or (layout.width, layout.height) != (
 			self._layout.width,
 			self._layout.height,
@@ -217,13 +178,13 @@ class ViewerFrame(wx.Frame):
 		except Exception:
 			log.debugWarning("BrlMultiline: could not show the viewer", exc_info=True)
 
-	def _makeLayout(self, picture: Picture) -> _Layout:
+	def _makeLayout(self, picture: Picture) -> ViewerLayout:
 		dc = wx.ClientDC(self._panel)
 		dc.SetFont(self._brailleFont)
 		cellWidth, cellHeight = dc.GetTextExtent(brailleCharacter(0xFF))
 		dc.SetFont(self._labelFont)
 		_labelWidth, labelHeight = dc.GetTextExtent("Ag")
-		return _Layout(picture, max(cellWidth, 1), max(cellHeight, 1), labelHeight + ROW_GAP)
+		return ViewerLayout(picture, max(cellWidth, 1), max(cellHeight, 1), labelHeight + ROW_GAP)
 
 	# Painting
 
@@ -250,7 +211,7 @@ class ViewerFrame(wx.Frame):
 		for member, top in layout.memberTops:
 			dc.SetFont(self._labelFont)
 			dc.SetTextForeground(text)
-			dc.DrawText(member.label, MARGIN, top)
+			dc.DrawText(member.label, MARGIN, int(top))
 			if picture.showsPins(member):
 				self._paintPins(dc, layout, member, text)
 				continue
@@ -259,59 +220,53 @@ class ViewerFrame(wx.Frame):
 		self._paintHighlight(dc, layout)
 		dc.SetPen(wx.Pen(outline, 1))
 		dc.SetBrush(wx.TRANSPARENT_BRUSH)
+		rowCount = len(layout.rowTops)
 		for segment in picture.segments:
 			rect = segment.rect
-			if not 0 <= rect.row < len(layout.rowTops) or rect.numRows <= 0:
+			if not 0 <= rect.row < rowCount or rect.numRows <= 0 or rect.numCols <= 0:
 				continue
-			top = layout.rowTops[rect.row]
-			bottom = layout.rowTops[min(rect.endRow, len(layout.rowTops)) - 1] + layout.rowHeight
-			dc.DrawRectangle(layout.left(rect.col), top, rect.numCols * layout.cellWidth, bottom - top)
+			first = layout.cellBox(rect.row, rect.col)
+			last = layout.cellBox(min(rect.endRow, rowCount) - 1, rect.col + rect.numCols - 1)
+			_drawBox(dc, first.x, first.y, last.x + last.width - first.x, last.y + last.height - first.y)
 
-	def _paintRow(self, dc, layout: _Layout, row: int, rawText: str, text, dead) -> None:
+	def _paintRow(self, dc, layout: ViewerLayout, row: int, rawText: str, text, dead) -> None:
 		picture = self._picture
-		top = layout.rowTops[row]
 		dc.SetPen(wx.TRANSPARENT_PEN)
 		dc.SetBrush(wx.Brush(dead))
 		for col in range(picture.numCols):
 			if picture.isDead(row, col):
-				dc.DrawRectangle(layout.left(col), top, layout.cellWidth, layout.rowHeight)
+				box = layout.cellBox(row, col)
+				_drawBox(dc, box.x, box.y, box.width, box.height)
 		dc.SetFont(self._brailleFont)
 		dc.SetTextForeground(text)
 		braille = "".join(brailleCharacter(picture.cell(row, col)) for col in range(picture.numCols))
-		dc.DrawText(braille, layout.left(0), top)
-		dc.DrawText(rawText, layout.left(0), top + layout.cellHeight)
+		top = int(layout.rowTops[row])
+		dc.DrawText(braille, MARGIN, top)
+		dc.DrawText(rawText, MARGIN, top + layout.cellHeight)
 
-	def _paintPins(self, dc, layout: _Layout, member: Member, text) -> None:
-		picture = self._picture
-		band = picture.pinBandFor(member)
-		if band is None:
+	def _paintPins(self, dc, layout: ViewerLayout, member: Member, text) -> None:
+		step = layout.pinStep(member)
+		if step is None:
 			return
-		top = layout.rowTops[member.rowStart]
-		stepX = layout.cellWidth / band.pinsPerCol
-		stepY = layout.rowHeight / band.pinsPerRow
-		radius = max(1, int(min(stepX, stepY) * 0.35))
+		radius = max(1, int(step * 0.35))
 		lowered = wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT)
-		for y, row in enumerate(picture.pins(member)):
+		for y, row in enumerate(self._picture.pins(member)):
 			for x, raised in enumerate(row):
 				colour = text if raised else lowered
 				dc.SetPen(wx.Pen(colour, 1))
 				dc.SetBrush(wx.Brush(colour) if raised else wx.TRANSPARENT_BRUSH)
-				centreX = int(MARGIN + (x + 0.5) * stepX)
-				centreY = int(top + (y + 0.5) * stepY)
-				dc.DrawCircle(centreX, centreY, radius if raised else max(1, radius // 2))
+				centreX, centreY = layout.pinCentre(member, x, y)
+				dc.DrawCircle(int(centreX), int(centreY), radius if raised else max(1, radius // 2))
 
-	def _paintHighlight(self, dc, layout: _Layout) -> None:
-		for position, colour in ((self._pending, PENDING_COLOUR), (self._routed, ROUTED_COLOUR)):
+	def _paintHighlight(self, dc, layout: ViewerLayout) -> None:
+		pending = self._hoverTracker.pending
+		for position, colour in ((pending, PENDING_COLOUR), (self._routed, ROUTED_COLOUR)):
 			if position is None or position.row >= len(layout.rowTops):
 				continue
 			dc.SetPen(wx.Pen(colour, 3))
 			dc.SetBrush(wx.TRANSPARENT_BRUSH)
-			dc.DrawRectangle(
-				layout.left(position.col),
-				layout.rowTops[position.row],
-				layout.cellWidth,
-				layout.rowHeight,
-			)
+			box = layout.cellBox(position.row, position.col)
+			_drawBox(dc, box.x, box.y, box.width, box.height)
 
 	# Hover routing
 
@@ -323,38 +278,35 @@ class ViewerFrame(wx.Frame):
 	def _onMotion(self, event) -> None:
 		if not self._hover.IsChecked() or self._layout is None:
 			return
+		wasPending = self._hoverTracker.pending is not None
 		position = self._layout.position(event.GetX(), event.GetY())
-		if position is not None and routingIndex(self._picture, position) is None:
-			# A cell that reaches no hardware routes nowhere, so it is not offered.
-			position = None
-		if (
-			position is not None
-			and self._pending is not None
-			and position.row == self._pending.row
-			and position.col == self._pending.col
-		):
-			# The same cell. A different pin of it still points the touch at the latest pin.
-			self._pending = position
-			return
-		self._cancelHover()
-		if position is None:
-			return
-		self._pending = position
-		self._hoverTimer = wx.CallLater(int(_hoverSeconds() * 1000), self._activate)
-		self._panel.Refresh()
+		if self._hoverTracker.move(self._picture, position):
+			self._stopHoverTimer()
+			self._hoverTimer = wx.CallLater(int(_hoverSeconds() * 1000), self._activate)
+		elif self._hoverTracker.pending is None:
+			self._stopHoverTimer()
+		if wasPending or self._hoverTracker.pending is not None:
+			self._panel.Refresh()
 
 	def _cancelHover(self) -> None:
+		self._stopHoverTimer()
+		wasPending = self._hoverTracker.pending is not None
+		self._hoverTracker.leave()
+		if wasPending:
+			self._panel.Refresh()
+
+	def _stopHoverTimer(self) -> None:
 		if self._hoverTimer is not None:
 			self._hoverTimer.Stop()
 			self._hoverTimer = None
-		if self._pending is not None:
-			self._pending = None
-			self._panel.Refresh()
 
 	def _activate(self) -> None:
 		self._hoverTimer = None
-		position, self._pending = self._pending, None
-		if position is None or self._closing:
+		if self._closing:
+			return
+		position = self._hoverTracker.activate(self._picture)
+		if position is None:
+			self._panel.Refresh()
 			return
 		self._routed = position
 		self._panel.Refresh()
@@ -408,3 +360,7 @@ def _hoverSeconds() -> float:
 		return float(config.conf["brailleViewer"]["secondsOfHoverToActivate"])
 	except Exception:
 		return 1.0
+
+
+def _drawBox(dc, x: float, y: float, width: float, height: float) -> None:
+	dc.DrawRectangle(int(x), int(y), max(1, int(width + 0.5)), max(1, int(height + 0.5)))
