@@ -1390,8 +1390,9 @@ Bluetooth displays this could be slow enough to notice. Measure it; if it hurts,
 is probably to keep members alive across the switch rather than to speed up init.
 
 **Braille viewer and remote braille are untested in combination.** Both hang off
-`pre_writeCells`, which now carries the full virtual array and virtual dimensions. The viewer
-should simply show more rows. `_remoteClient` sends `displayDimensions.numCols`, which will
+`pre_writeCells`, which now carries the full virtual array and virtual dimensions. NVDA's
+viewer does not show more rows: it forces the handler to one row while it is open, which
+collapses the layout. See [braille-viewer-plan.md](braille-viewer-plan.md). `_remoteClient` sends `displayDimensions.numCols`, which will
 be the composite width — plausible but unverified.
 
 **The dead column trap.** Stated above and repeated here because it is the failure that will
