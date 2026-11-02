@@ -983,13 +983,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		}
 		present = {device.driverName for device in deviceMap()}
 		for key in self._monitors.keys() - survivors.keys():
-			if self._heldPins is not None:
+			carrying = any(monitor is self._monitors[key] for monitor in self.focusMoves.pinsInFlight)
+			if self._heldPins is not None and not carrying:
 				# A claim that has yet to make way for it may cover it for one rebuild.
 				self._heldPins[key] = self._monitors[key]
 				continue
 			driverName = driverNameForSegmentKey(key)
 			gone = driverName is not None and driverName not in present
-			carrying = any(monitor is self._monitors[key] for monitor in self.focusMoves.pinsInFlight)
 			if gone or carrying:
 				# Re-homed only when its display has gone or a focus move is carrying it. Any
 				# other loss of a segment is a decision, and the pin stays released.
@@ -1399,6 +1399,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		return self._pinsAside is not None
 
 	@property
+	def hasPlaces(self) -> bool:
+		""":return: whether any place holds a pin, shown or set aside."""
+		return bool(self.places.places)
+
+	@property
 	def pinsAside(self) -> Mapping[str, ObjectMonitor]:
 		""":return: the pins set aside, by the key each goes back to, read only. Empty while they are shown."""
 		return types.MappingProxyType(self._pinsAside or {})
@@ -1711,31 +1716,50 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._rearrange()
 
 	def _rearrange(self) -> None:
-		"""Rebuild for a change to the places, or to pins being set aside, keeping every pin.
+		"""Rebuild for a change to the places, or to pins being set aside, keeping every pin. See `holdingPins`."""
+		with self.holdingPins("the reader's pins changed"):
+			self.rebuildBuffer()
+
+	@contextlib.contextmanager
+	def holdingPins(self, why: str, retakeLayout: bool = True):
+		"""Rebuild inside this, and a pin is released only if it has no segment once it is over.
 
 		The flow band and an app layout were claimed for the arrangement before the change, and
-		may cover a pin for the rebuild that moves them, so pins are held through it and filed
+		may cover a pin for the rebuilds that move them, so pins are held through them and filed
 		again after. An app layout is taken down and asked for again, since its room changed.
+		Inside another, this one adds nothing.
+
+		:param why: what changed, for the log, as the app layout is taken down.
+		:param retakeLayout: take an app layout down and ask for it again. False where no place
+			holds a pin, so its room has not changed.
+		:return: a context whose value is a list, holding afterwards the names of the pins released.
 		"""
-		layoutWasUp = self.appLayouts.shown is not None
+		released: list[str] = []
+		if self._heldPins is not None:
+			yield released
+			return
+		layoutWasUp = retakeLayout and self.appLayouts.shown is not None
 		self._heldPins = {}
 		try:
 			if layoutWasUp:
-				self.appLayouts.takeDown("the reader's pins changed")
-			self.rebuildBuffer()
+				self.appLayouts.takeDown(why)
+			yield released
 		finally:
 			held, self._heldPins = self._heldPins, None
-		container = self.container
-		for key, monitor in held.items():
-			if container is not None and self._canKeepPin(container, key):
-				self._monitors[key] = monitor
-				continue
-			log.debug(f"BrlMultiline: segment {key!r} is not in the new arrangement, so its pin is released")
-			monitor.stop()
-			self.places.remove(key)
-		self.refreshMonitors()
-		if layoutWasUp:
-			self.appLayouts.followFocus(api.getFocusObject())
+			container = self.container
+			for key, monitor in held.items():
+				if container is not None and self._canKeepPin(container, key):
+					self._monitors[key] = monitor
+					continue
+				log.debug(
+					f"BrlMultiline: segment {key!r} is not in the new arrangement, so its pin is released",
+				)
+				monitor.stop()
+				self.places.remove(key)
+				released.append(monitor.name)
+			self.refreshMonitors()
+			if layoutWasUp:
+				self.appLayouts.followFocus(api.getFocusObject())
 
 	@script(
 		# Translators: input help message for a command.

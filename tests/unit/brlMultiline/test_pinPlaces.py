@@ -15,6 +15,7 @@ from ._stubs import (
 	CONFIG,
 	FakeHandler,
 	FakeNavigatorObject,
+	FakeTableDocument,
 	FakeTreeInterceptor,
 	callAfterQueue,
 	callLaterQueue,
@@ -354,6 +355,48 @@ class TestWhereAResizedPinIsReadTo(PlacesTestCase):
 		self.assertIsNone(self.plugin.resizePin(key, 3))
 		self.assertIs(topObject(), before)
 
+	def test_aPageKeepsAPositionPastTheFirstChunkOfALongParagraph(self):
+		page = FakeTreeInterceptor(["word " * 1000, "last line"], caretIndex=0)
+		self.plugin.pinToPlace(FOCUS_PLACE, FakeNavigatorObject("the page", treeInterceptor=page), before=True)
+		monitor = self.plugin.pins[self.keyOf("the page")]
+		for _turn in range(20):
+			self.assertTrue(monitor.controller.panForward())
+		before = monitor.controller.topPosition()
+		self.assertGreater(before.offset, monitor.controller.renderer.maxRows * MONARCH_COLS)
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the page"), 3))
+		self.assertEqual(monitor.controller.topPosition().compareEndPoints(before, "startToStart"), 0)
+
+	def pinTable(self, cells):
+		document = FakeTableDocument(cells, row=2, col=1)
+		self.plugin.pinToPlace(FOCUS_PLACE, FakeNavigatorObject("the table", treeInterceptor=document), before=True)
+		monitor = self.plugin.pins[self.keyOf("the table")]
+		monitor.wantsColumns = True
+		monitor.refresh()
+		self.assertIsNotNone(monitor.columnPlan())
+		return document, monitor
+
+	def topRow(self, monitor):
+		return monitor.controller.window.anchor.blockId.bookmark
+
+	def test_aTableKeepsTheRowItWasPannedToAndNotTheCaretsRow(self):
+		document, monitor = self.pinTable([[f"R{row}C{col}" for col in range(1, 4)] for row in range(1, 31)])
+		self.assertTrue(monitor.controller.panForward())
+		before = self.topRow(monitor)
+		self.assertGreater(before, document.row)
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the table"), 3))
+		self.assertEqual(self.topRow(monitor), before)
+		self.assertEqual(document.row, 2)
+
+	def test_aWideTableKeepsItsPageOfColumns(self):
+		_document, monitor = self.pinTable(
+			[[f"row {row} column {col} text" for col in range(1, 9)] for row in range(1, 31)],
+		)
+		self.assertTrue(monitor.turnColumnPage(1))
+		page = monitor.columnPlan().page
+		self.assertGreater(page, 0)
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the table"), 3))
+		self.assertEqual(monitor.columnPlan().page, page)
+
 
 class TestPlacesBesideTheFlow(PlacesTestCase):
 	def setUp(self):
@@ -525,6 +568,64 @@ class TestMovingTheFocusWithPlaces(TestAOneRowPinOnADisplayOfRows):
 		self.plugin.script_changeFocusTrackingDisplay(None)
 		self.assertEqual(len(self.plugin.pins), 4)
 		self.assertIn("There is no room for pin 4, so its pin is released", spokenMessages)
+
+
+class TestMovingTheFocusPastTheFlowWithPlaces(PlacesTestCase):
+	"""A Monarch above a Focus 80, with the focus and the flow on the Monarch.
+
+	The flow covers where the pins are going until the move has carried it along, so the pins
+	are held until then.
+	"""
+
+	def makeHandler(self):
+		handler = FakeHandler(9, 80)
+		handler.display = fakeVirtualDisplay(
+			("hidBrailleStandard", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+		)
+		return handler
+
+	def setUp(self):
+		super().setUp()
+		setBandConfig("hidBrailleStandard_8x32", segmentCount=1)
+		setBandConfig("freedomScientific_1x80", segmentCount=1)
+		CONFIG["focusSegment"] = 0
+		self.plugin.rebuildBuffer()
+
+	def names(self):
+		return {monitor.name for monitor in self.plugin.pins.values()}
+
+	def test_aPinOnTheOtherDisplayTradesPlacesPastTheFlow(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		self.assertTrue(self.pinTo("freedomScientific", name="the clock"))
+		self.plugin.script_changeFocusTrackingDisplay(None)
+		self.assertEqual(self.names(), {"the clock"})
+		self.assertEqual(self.rectOf("the clock"), MONARCH)
+
+	def test_aPinBesideTheFocusGoesWithItPastTheFlow(self):
+		CONFIG["flowEnabled"] = True
+		self.plugin.rebuildBuffer()
+		self.assertTrue(self.pinTo(name="the page", size=3, before=True))
+		self.plugin.script_changeFocusTrackingDisplay(None)
+		self.assertEqual(self.names(), {"the page"})
+
+	def test_aPinOnTheOtherDisplayTradesPlacesPastAnAppLayout(self):
+		from .test_plugin import ScriptedAppModule, chatLayout
+
+		CONFIG["appLayouts"] = True
+		focus = FakeNavigatorObject("Compose", role="editableText")
+		focus.appModule = ScriptedAppModule(chatLayout(FakeNavigatorObject("Messages", role="list")))
+		with mock.patch("api.getFocusObject", return_value=focus):
+			self.plugin.event_gainFocus(focus, lambda: None)
+			callLaterQueue.fire()
+			self.assertTrue(self.plugin.appLayouts.isUp)
+			self.assertTrue(self.pinTo("freedomScientific", name="the clock"))
+			callLaterQueue.fire()
+			self.plugin.script_changeFocusTrackingDisplay(None)
+			callAfterQueue.flush()
+			callLaterQueue.fire()
+			self.assertEqual(self.names(), {"the clock"})
 
 
 class TestTheSegmentCommandsWithPinsAside(TestAOneRowPinOnADisplayOfRows):

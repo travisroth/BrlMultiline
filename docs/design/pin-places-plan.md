@@ -146,10 +146,12 @@ What building it settled that the design left open, and where it differs.
 5. **A pin's key outlives the division.** Keys are `place.<id>.<n>`, numbered as pins are made,
    so dividing a place again changes rectangles and not keys, and a monitor stays filed under
    its key. A pin read as a flow is rebuilt at its new size and put back where the reader had
-   panned it to: `FlowController.readingPlace` takes the position at the top of the old flow, or
-   for a run of objects the object at the top, and `enterAtPlace` enters the new one there. In a
-   paragraph wrapped over several rows, the row holding that position goes to the top, not the
-   paragraph's first row. Found in testing, where a page shrinking from eight rows to four went
+   panned it to: `FlowController.readingPlace` takes the position at the top of the old flow,
+   for a run of objects the object at the top, and for a table its row and page of columns, and
+   `enterAtPlace` enters the new one there without moving the caret. In a paragraph wrapped over
+   several rows, the row holding that position goes to the top, not the paragraph's first row;
+   past the first chunk of a long paragraph, its cell is found by halving through the region
+   and only the chunk around it is rendered, as for a caret (`_renderActiveChunk`). Found in testing, where a page shrinking from eight rows to four went
    back to where the caret was.
 6. **Pins are held while the display makes way for them.** The flow band and an app layout were
    claimed for the arrangement before the change, and for one rebuild they can cover a pin's new
@@ -180,7 +182,11 @@ What building it settled that the design left open, and where it differs.
     configured view, so which displays the focus can move to is asked of that view. The focus
     place goes with the focus, and the place on the display the focus arrives at goes to the
     display it left, the two trading as a pin in a segment does (`Places.followFocus`). Both go
-    back to sharing equally, since a size in rows means nothing on a display of one row. A pin
+    back to sharing equally, since a size in rows means nothing on a display of one row. The
+    flow band or an app layout on the display the focus leaves covers where the pins are going
+    until the move has carried it along, so the move rebuilds inside `GlobalPlugin.holdingPins`,
+    as `_rearrange` does, and a pin is released only if it has no segment once it is over. An app
+    layout is taken down and asked for again only while a place holds a pin. A pin
     with no room where it lands is released, the last first, and the reader is told.
 12. **The dialog chooses by key.** `PinManager` keeps the targets it listed, and a name chosen
     from them is checked again by its key or place, so segments numbered again while the dialog

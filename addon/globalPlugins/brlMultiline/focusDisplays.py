@@ -11,6 +11,7 @@ the way is carried to another segment, or the reader is asked which pins to keep
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import NamedTuple, Protocol, TYPE_CHECKING
 
 import addonHandler
@@ -82,6 +83,9 @@ class FocusHost(Protocol):
 	@property
 	def pins(self) -> Mapping[str, ObjectMonitor]: ...
 
+	@property
+	def hasPlaces(self) -> bool: ...
+
 	def activatedView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView | None: ...
 
 	def configuredView(self, numRows: int, numCols: int, devices: list[DeviceInfo]) -> SegmentView: ...
@@ -91,6 +95,8 @@ class FocusHost(Protocol):
 	def movePin(self, key: str, home: str) -> ObjectMonitor: ...
 
 	def movePlacesWithFocus(self, leaving: str, arriving: str) -> list[str]: ...
+
+	def holdingPins(self, why: str, retakeLayout: bool = True) -> AbstractContextManager[list[str]]: ...
 
 	def rebuildBuffer(self) -> None: ...
 
@@ -327,13 +333,20 @@ class FocusDisplayMoves:
 		crowdedOut = []
 		if leaving is not None and leaving != target.driverName:
 			crowdedOut = self.plugin.movePlacesWithFocus(leaving, target.driverName)
-		try:
-			# One move can rebuild the display several times: the band is claimed or given
-			# back as the focus arrives, and claiming rebuilds again. The pins are in flight
-			# for all of it, and land only when it has finished.
-			self.plugin.rebuildBuffer()
-		finally:
-			self._landPinsInFlight()
+		# The flow band or an app layout on the display the focus leaves covers where pins in
+		# places are going until it has moved, so they are held until it has.
+		with self.plugin.holdingPins(
+			"the focus moved to another display",
+			retakeLayout=self.plugin.hasPlaces,
+		) as released:
+			try:
+				# One move can rebuild the display several times: the band is claimed or given
+				# back as the focus arrives, and claiming rebuilds again. The pins are in flight
+				# for all of it, and land only when it has finished.
+				self.plugin.rebuildBuffer()
+			finally:
+				self._landPinsInFlight()
+		crowdedOut.extend(released)
 		ui.message(
 			# Translators: reported when the focus is moved onto one of several combined
 			# displays. Placeholders are the display's name and the segment number.
