@@ -62,7 +62,7 @@ A rule of its own, since escape has no NVDA command for the ordinary script rule
 modifiers it is another key, left to NVDA.
 """
 
-SHIPPED = 8
+SHIPPED = 9
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -124,6 +124,12 @@ SHIPPED_ADDITIONS = {
 	8: {
 		"layers": ("simulatedDisplay",),
 	},
+	# Drawing a picture on a simulated display, and taking it off, from the keyboard.
+	9: {
+		"bindings": {
+			"simulatedDisplay": ("kb:g", "kb:shift+g"),
+		},
+	},
 }
 """What each revision of the shipped layers added, for sets saved before it.
 
@@ -131,7 +137,8 @@ Saved layers replace the shipped ones whole, so a set saved before a revision is
 added, once: a shipped layer with no layer of that id or context, and a shipped key its layer
 does not bind. Nothing the reader changed is touched, and saving records the revision.
 
-Layers by id, bindings by layer id and key without the device, which is added per device.
+Layers by id, bindings by layer id and key. A braille key is written without the device, which is
+added per device; a keyboard key is written whole, as `kb:g`.
 """
 
 NEVER_END_A_LAYER = frozenset(
@@ -607,7 +614,7 @@ def withShippedAdditions(layers: LayerSet, factory: Iterable, since: int) -> tup
 				continue
 			new = {}
 			for key in keys:
-				identifier = normalize(f"br({layers.device}):{key}")
+				identifier = normalize(key if key.startswith("kb:") else f"br({layers.device}):{key}")
 				if identifier in layer.bindings and identifier not in own.bindings:
 					new[identifier] = layer.bindings[identifier]
 			if new:
@@ -1036,8 +1043,9 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			},
 		)
 		# The keys a tester uses for a simulated display: up and down pan, left and right are the zoom
-		# keys, pressed as the display's own so its layers decide them, and g draws the navigator object
-		# as a picture, as space with dots 1, 4 and 7 does on the Monarch. Stays on, since the keys are
+		# keys, pressed as the display's own so its layers decide them, g draws the navigator object
+		# as a picture, as space with dots 1, 4 and 7 does on the Monarch, and shift with g takes the
+		# drawing off, as space with dots 7 and 8 does. Stays on, since the keys are
 		# wanted again and again.
 		simulatedDisplay = SIMULATED_DISPLAYS[0]
 		simulated = newLayer(
@@ -1053,6 +1061,7 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize("kb:leftArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomOut"),
 				normalize("kb:rightArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomIn"),
 				normalize("kb:g"): plugin("drawPicture", simulatedDisplay),
+				normalize("kb:shift+g"): plugin("toggleGraphics", simulatedDisplay),
 			},
 		)
 		return [default, graphics, simulated]

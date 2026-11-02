@@ -108,8 +108,14 @@ class Picture:
 
 	@property
 	def shape(self) -> tuple:
-		""":return: the display's size and its members' places, which a pointer's target depends on."""
-		return (self.numRows, self.numCols, tuple(self.members))
+		""":return: everything that decides where rows are drawn, which a pointer's target depends on.
+
+		The display's size, its members' places, their pin grids, and which members are drawn as
+		pins, since a member's rows change height as a drawing goes up or comes off. Not the cells
+		or the drawings themselves, which change without moving anything.
+		"""
+		drawn = tuple(member.name for member in self.members if self.showsPins(member))
+		return (self.numRows, self.numCols, tuple(self.members), self.pinBands, drawn)
 
 	def memberForRow(self, row: int) -> Member | None:
 		for member in self.members:
@@ -396,7 +402,7 @@ class HoverTracker:
 		self._routed = None
 
 	def pictureChanged(self, old: Picture, new: Picture) -> bool:
-		"""Forget the pointer if the display under it changed shape or members.
+		"""Forget the pointer if the rows under it moved. See `Picture.shape`.
 
 		:return: whether it was forgotten, for the caller to stop its timer.
 		"""

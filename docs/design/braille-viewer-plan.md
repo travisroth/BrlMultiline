@@ -268,7 +268,10 @@ viewer looks like NVDA's.
    colours, and its rule that a routed cell does not route again until the pointer leaves it. Not
    `TextCellHover` itself, which is bound to a text control; `viewerModel.HoverTracker` keeps the
    same state, and also drops a wait whose cell no longer belongs to the same display, which a
-   repaint between the pointer resting and the timer firing could otherwise change under it.
+   repaint between the pointer resting and the timer firing could otherwise change under it. A
+   wait is also dropped when the rows under the pointer move (`Picture.shape`), as they do when a
+   drawing goes up or comes off and a member's rows change height; new cells and a changed drawing
+   move nothing, so a cursor blink does not end a wait.
 3. `BrailleViewerGesture_RouteTo(index)`, for a real display. The index is a position on the whole
    display, and `DisplayContainer.routeTo` already turns that into a segment and a position within
    it, so routing across rows, segments and members needs no new routing code.
@@ -327,6 +330,9 @@ It ships with few bindings:
    `braille_scrollForward`.
 2. G draws the navigator object as a picture (`drawPicture`), as space with dots 1, 4 and 7 does
    on the Monarch. Asked for by the reader, 2 November 2026, so a tester can put a drawing up at all.
+   Shift with g takes the drawing off (`toggleGraphics`), as space with dots 7 and 8 does on the
+   Monarch; with no drawing up, it puts up the test figure, as that key does. The Monarch's own
+   binding for it is in its gesture map under its driver name, so a simulated display has none.
 3. Left and right arrow are the Monarch's zoom keys, out and in. They do what the zoom keys do
    in the layer that is on: in a table they turn its pages (`flowPreviousColumns`,
    `flowNextColumns`), with a drawing they zoom (`graphicsZoomOut`, `graphicsZoomIn`), and on
@@ -345,7 +351,9 @@ they turn pages only while the simulated display's table layer is on, which come
 key, as on the Monarch. With a drawing up, and on unwrapped lines, its layer comes on by itself.
 
 The layer is revision 8 of `keyLayers.SHIPPED_ADDITIONS`, so a keyboard layer set saved before it
-is given it.
+is given it. G and shift with g came after the layer was first tried, so they are revision 9, for a
+set saved with the layer but without them. The additions now take a keyboard key written whole, as
+`kb:g`, where before they could add only braille keys.
 
 The layer is turned on and off with the keyboard's layer key, and escape leaves it, as for the
 keyboard's other layers. It does not come on by itself, since while it is on the arrows do not

@@ -251,6 +251,25 @@ class TestHover(unittest.TestCase):
 		replaced = composite(members=(MONARCH._replace(name="anotherDisplay"), FOCUS))
 		self.assertIsNone(self.tracker.activate(replaced))
 
+	def test_aDrawingGoingUpOrOffDropsTheWait(self):
+		drawn = composite(overlays={MONARCH.name: (Overlay(0, 0, buffer(["O"])),)})
+		# The Monarch's rows change height, so the row under a still pointer is another display's.
+		textLayout = ViewerLayout(self.picture, cellWidth=12, cellHeight=24, labelHeight=16)
+		pinLayout = ViewerLayout(drawn, cellWidth=12, cellHeight=24, labelHeight=16)
+		self.assertEqual(textLayout.position(38, 229).row, 4)
+		self.assertEqual(pinLayout.position(38, 229).row, 8)
+		for before, after in ((self.picture, drawn), (drawn, self.picture)):
+			with self.subTest(before=bool(before.overlays)):
+				self.tracker.move(before, CellPosition(4, 2))
+				self.assertTrue(self.tracker.pictureChanged(before, after))
+				self.assertIsNone(self.tracker.activate(after))
+
+	def test_aDrawingThatChangesKeepsTheWait(self):
+		drawn = composite(overlays={MONARCH.name: (Overlay(0, 0, buffer(["O"])),)})
+		redrawn = composite(overlays={MONARCH.name: (Overlay(5, 5, buffer(["OO"])),)})
+		self.tracker.move(drawn, CellPosition(4, 2))
+		self.assertFalse(self.tracker.pictureChanged(drawn, redrawn))
+
 	def test_newCellsOnTheSameDisplayKeepTheWait(self):
 		self.tracker.move(self.picture, CellPosition(0, 2))
 		self.assertFalse(self.tracker.pictureChanged(self.picture, composite([1] * 9 * 80)))

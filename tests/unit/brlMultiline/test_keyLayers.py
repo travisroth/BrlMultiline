@@ -718,12 +718,45 @@ class TestSimulatedDisplays(unittest.TestCase):
 		)
 		draw = layer.bindings[normalize("kb:g")]
 		self.assertEqual((draw.scriptName, draw.actsFor), ("drawPicture", self.SIMULATED))
+		off = layer.bindings[normalize("kb:shift+g")]
+		self.assertEqual((off.scriptName, off.actsFor), ("toggleGraphics", self.SIMULATED))
 
 	def test_aDisplayKeyIsStoredAndReadBack(self):
 		target = Target.displayKey(f"br({self.SIMULATED}):zoomIn")
 		self.assertEqual(target.toStored(), {"displayKey": f"br({self.SIMULATED}):zoomIn"})
 		self.assertEqual(Target.fromStored(target.toStored()), target)
 		self.assertIsNone(Target.fromStored({"displayKey": "zoomIn"}))
+
+	def test_aSetSavedWithTheLayerBeforeGIsGivenG(self):
+		factory = keyLayers.defaultLayers(KEYBOARD, PLUGIN)
+		drawKeys = {normalize("kb:g"), normalize("kb:shift+g")}
+		saved = LayerSet(
+			KEYBOARD,
+			tuple(
+				replace_(layer, bindings={key: target for key, target in layer.bindings.items() if key not in drawKeys})
+				if layer.id == "simulatedDisplay"
+				else layer
+				for layer in factory
+			),
+		)
+		layers, added = keyLayers.withShippedAdditions(saved, factory, 8)
+		self.assertTrue(drawKeys <= set(layers.get("simulatedDisplay").bindings))
+		self.assertEqual(added, ["2 keys in the Simulated display layer"])
+
+	def test_aReadersOwnGIsKept(self):
+		factory = keyLayers.defaultLayers(KEYBOARD, PLUGIN)
+		own = Target.key("kb:escape")
+		saved = LayerSet(
+			KEYBOARD,
+			tuple(
+				replace_(layer, bindings={**layer.bindings, normalize("kb:g"): own})
+				if layer.id == "simulatedDisplay"
+				else layer
+				for layer in factory
+			),
+		)
+		layers, _added = keyLayers.withShippedAdditions(saved, factory, 8)
+		self.assertEqual(layers.get("simulatedDisplay").bindings[normalize("kb:g")], own)
 
 	def test_aKeyboardSetSavedBeforeItIsGivenTheLayer(self):
 		saved = LayerSet(KEYBOARD, tuple(keyLayers.defaultLayers(KEYBOARD, PLUGIN)[:2]))
