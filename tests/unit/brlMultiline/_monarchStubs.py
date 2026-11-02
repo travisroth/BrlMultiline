@@ -516,7 +516,11 @@ def installMonarchStubs() -> None:
 	_module(
 		"autoSettingsUtils",
 	)
-	_module("autoSettingsUtils.driverSetting", DriverSetting=_DriverSetting)
+	_module(
+		"autoSettingsUtils.driverSetting",
+		DriverSetting=_DriverSetting,
+		NumericDriverSetting=_NumericDriverSetting,
+	)
 	_module("autoSettingsUtils.utils", StringParameterInfo=_StringParameterInfo)
 	_module(
 		"brailleDisplayDrivers.hidBrailleStandard",
@@ -539,6 +543,8 @@ def installMonarchStubs() -> None:
 	package = types.ModuleType(PACKAGE)
 	package.__path__ = [DRIVER_DIR]
 	sys.modules[PACKAGE] = package
+	# The same package by the name the simulated display imports its pin buffer under.
+	sys.modules["brailleDisplayDrivers.brlMultilineMonarch"] = package
 
 
 class _DriverSetting:
@@ -547,9 +553,19 @@ class _DriverSetting:
 	def __init__(self, id, displayName, defaultVal=None, useConfig=True, availableInSettingsRing=False):
 		self.id = id
 		self.displayName = displayName
+		self.displayNameWithAccelerator = displayName
 		self.defaultVal = defaultVal
 		self.useConfig = useConfig
 		self.availableInSettingsRing = availableInSettingsRing
+
+
+class _NumericDriverSetting(_DriverSetting):
+	"""`autoSettingsUtils.driverSetting.NumericDriverSetting`, as far as a driver declares one."""
+
+	def __init__(self, id, displayName, defaultVal=50, minVal=0, maxVal=100, useConfig=True, **kwargs):
+		super().__init__(id, displayName, defaultVal=defaultVal, useConfig=useConfig)
+		self.minVal = minVal
+		self.maxVal = maxVal
 
 
 class _StringParameterInfo:

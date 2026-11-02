@@ -34,6 +34,9 @@ KEYBOARD = "keyboard"
 """The device name for keyboard gestures, which carry no driver name of their own."""
 
 MONARCH = "brlMultilineMonarch"
+SIMULATED_DISPLAYS = ("brlMultilineSimulated1", "brlMultilineSimulated2")
+"""The combined display's simulated members, which ship the Monarch's layers under their own names.
+See docs/design/braille-viewer-plan.md, Input."""
 
 DEFAULT_ID = "default"
 """The default layer's id. Every device has exactly one, and it cannot be removed."""
@@ -59,7 +62,7 @@ A rule of its own, since escape has no NVDA command for the ordinary script rule
 modifiers it is another key, left to NVDA.
 """
 
-SHIPPED = 7
+SHIPPED = 8
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -117,6 +120,10 @@ SHIPPED_ADDITIONS = {
 	7: {
 		"layers": ("pinnedDocument",),
 	},
+	# The keyboard's keys for a simulated display.
+	8: {
+		"layers": ("simulatedDisplay",),
+	},
 }
 """What each revision of the shipped layers added, for sets saved before it.
 
@@ -167,6 +174,7 @@ def spaceWithZ(device: str) -> str:
 
 SCRIPT = "script"
 KEY = "key"
+DISPLAY_KEY = "displayKey"
 BLOCKED = "blocked"
 
 
@@ -174,13 +182,15 @@ class Target(NamedTuple):
 	"""What a key in a layer does."""
 
 	kind: str
-	"""L{SCRIPT}, L{KEY} for an emulated keyboard key, or L{BLOCKED} for nothing at all."""
+	"""L{SCRIPT}, L{KEY} for an emulated keyboard key, L{DISPLAY_KEY} for a braille display's key,
+	or L{BLOCKED} for nothing at all."""
 
 	moduleName: str = ""
 	className: str = ""
 	scriptName: str = ""
 	"""For a script, its name without `script_`, as NVDA's gesture maps name one. For a key, the
-	key as Input Gestures' emulated keys store it, such as `kb:downArrow`."""
+	key as Input Gestures' emulated keys store it, such as `kb:downArrow`. For a display's key, its
+	identifier, such as `br(brlMultilineSimulated1):zoomIn`."""
 
 	actsFor: str | None = None
 	"""The display this binding acts for, when a keyboard key runs a command that asks which
@@ -195,6 +205,15 @@ class Target(NamedTuple):
 		return cls(KEY, scriptName=key if key.startswith("kb:") else f"kb:{key}", actsFor=actsFor)
 
 	@classmethod
+	def displayKey(cls, identifier: str):
+		"""A braille display's key, pressed as that display's own, so its layers decide what it does.
+
+		:param identifier: as `br(driverName):keyId`, not normalized, since the driver name is matched
+			against the display's members as written.
+		"""
+		return cls(DISPLAY_KEY, scriptName=identifier)
+
+	@classmethod
 	def blocked(cls):
 		return cls(BLOCKED)
 
@@ -202,7 +221,7 @@ class Target(NamedTuple):
 		""":return: the target as a log line names it."""
 		if self.kind == SCRIPT:
 			return f"{self.moduleName}.{self.className}.{self.scriptName}"
-		if self.kind == KEY:
+		if self.kind in (KEY, DISPLAY_KEY):
 			return self.scriptName
 		return "blocked"
 
@@ -212,6 +231,8 @@ class Target(NamedTuple):
 			stored = {"module": self.moduleName, "class": self.className, "script": self.scriptName}
 		elif self.kind == KEY:
 			stored = {"key": self.scriptName}
+		elif self.kind == DISPLAY_KEY:
+			stored = {"displayKey": self.scriptName}
 		else:
 			stored = {"blocked": True}
 		if self.actsFor:
@@ -230,6 +251,9 @@ class Target(NamedTuple):
 		key = stored.get("key")
 		if isinstance(key, str) and key:
 			return cls.key(key, actsFor)
+		displayKey = stored.get("displayKey")
+		if isinstance(displayKey, str) and displayKey.startswith("br("):
+			return cls.displayKey(displayKey)
 		parts = (stored.get("module"), stored.get("class"), stored.get("script"))
 		if all(isinstance(part, str) and part for part in parts):
 			return cls.script(*parts, actsFor)
@@ -819,10 +843,11 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 	to it; a table layer that comes on only from the layer key, since the caret passes through
 	tables; and an unwrapped layer that comes on while lines are unwrapped. The right d-pad is in
 	none, so it stays the arrow keys. The bindings are below; see
-	docs/design/layered-keys-plan.md.
+	docs/design/layered-keys-plan.md. A simulated display ships the same layers under its own name.
 
 	The keyboard's graphics layer acts for the Monarch from the keypad, and does not come on by
-	itself, since the keypad is the review cursor on a desktop layout.
+	itself, since the keypad is the review cursor on a desktop layout. Its simulated display layer
+	is the first simulated display's keys on the arrows; see docs/design/braille-viewer-plan.md.
 
 	:param device: the device.
 	:param pluginModule: this add-on's plugin module, which is `globalPlugins.brlMultiline` in NVDA.
@@ -835,9 +860,9 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 	def command(name):
 		return Target.script("globalCommands", "GlobalCommands", name)
 
-	if device == MONARCH:
+	if device == MONARCH or device in SIMULATED_DISPLAYS:
 		pad = {
-			f"br({MONARCH}):leftDpad{direction}": direction for direction in ("Up", "Down", "Left", "Right")
+			f"br({device}):leftDpad{direction}": direction for direction in ("Up", "Down", "Left", "Right")
 		}
 		reading = {
 			"Up": "reportCurrentLine",
@@ -870,18 +895,18 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			autoEnable=True,
 			bindings={
 				**{normalize(key): plugin(f"graphicsPan{direction}") for key, direction in pad.items()},
-				normalize(f"br({MONARCH}):zoomIn"): plugin("graphicsZoomIn"),
-				normalize(f"br({MONARCH}):zoomOut"): plugin("graphicsZoomOut"),
+				normalize(f"br({device}):zoomIn"): plugin("graphicsZoomIn"),
+				normalize(f"br({device}):zoomOut"): plugin("graphicsZoomOut"),
 				# The panning keys move back and forward through text a display at a time, so here
 				# they move up and down a drawing a panel at a time: the same habit, and keys that
 				# otherwise do nothing while a drawing is up.
-				normalize(f"br({MONARCH}):panLeft"): plugin("graphicsPanelUp"),
-				normalize(f"br({MONARCH}):panRight"): plugin("graphicsPanelDown"),
+				normalize(f"br({device}):panLeft"): plugin("graphicsPanelUp"),
+				normalize(f"br({device}):panRight"): plugin("graphicsPanelDown"),
 				# Into the area last pressed in a page's layout, and back out: enter and backspace
 				# when typing braille, and nothing is typed into a drawing.
-				normalize(f"br({MONARCH}):dot8"): plugin("layoutDrillIn"),
-				normalize(f"br({MONARCH}):dot7"): plugin("layoutBackOut"),
-				**{normalize(f"br({MONARCH}):{chord}"): plugin(name) for chord, name in chords.items()},
+				normalize(f"br({device}):dot8"): plugin("layoutDrillIn"),
+				normalize(f"br({device}):dot7"): plugin("layoutBackOut"),
+				**{normalize(f"br({device}):{chord}"): plugin(name) for chord, name in chords.items()},
 			},
 		)
 		# Plain letters, which is what a layer for a kind of drawing can afford: nothing is typed into
@@ -894,17 +919,17 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			autoEnable=True,
 			fallsThrough="graphics",
 			bindings={
-				normalize(f"br({MONARCH}):dot1+dot3+dot5"): plugin("graphicsZoomToPoints"),
-				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot6"): plugin("graphicsNextView"),
-				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot6+dot7"): plugin("graphicsPreviousView"),
+				normalize(f"br({device}):dot1+dot3+dot5"): plugin("graphicsZoomToPoints"),
+				normalize(f"br({device}):dot1+dot2+dot3+dot6"): plugin("graphicsNextView"),
+				normalize(f"br({device}):dot1+dot2+dot3+dot6+dot7"): plugin("graphicsPreviousView"),
 				# Space with dot 4 and dot 1 are the Monarch's next and previous line, the nearest
 				# thing a chart has to stepping from one point to the next.
-				normalize(f"br({MONARCH}):space+dot4"): plugin("graphicsNextPoint"),
-				normalize(f"br({MONARCH}):space+dot1"): plugin("graphicsPreviousPoint"),
-				normalize(f"br({MONARCH}):space+dot1+dot2+dot3"): plugin("graphicsFirstPoint"),
-				normalize(f"br({MONARCH}):space+dot4+dot5+dot6"): plugin("graphicsLastPoint"),
-				normalize(f"br({MONARCH}):dot1+dot3+dot6"): plugin("graphicsUnmarkPoint"),
-				normalize(f"br({MONARCH}):dot1+dot2+dot3"): plugin("graphicsNextLevel"),
+				normalize(f"br({device}):space+dot4"): plugin("graphicsNextPoint"),
+				normalize(f"br({device}):space+dot1"): plugin("graphicsPreviousPoint"),
+				normalize(f"br({device}):space+dot1+dot2+dot3"): plugin("graphicsFirstPoint"),
+				normalize(f"br({device}):space+dot4+dot5+dot6"): plugin("graphicsLastPoint"),
+				normalize(f"br({device}):dot1+dot3+dot6"): plugin("graphicsUnmarkPoint"),
+				normalize(f"br({device}):dot1+dot2+dot3"): plugin("graphicsNextLevel"),
 			},
 		)
 		pictures = newLayer(
@@ -915,12 +940,12 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			autoEnable=True,
 			fallsThrough="graphics",
 			bindings={
-				normalize(f"br({MONARCH}):dot1+dot3+dot5"): plugin("pictureOutlines"),
-				normalize(f"br({MONARCH}):dot1+dot2+dot3"): plugin("pictureLines"),
-				normalize(f"br({MONARCH}):dot1+dot2"): plugin("pictureBrightness"),
-				normalize(f"br({MONARCH}):dot1+dot2+dot3+dot5"): plugin("pictureReversed"),
-				normalize(f"br({MONARCH}):dot1+dot4"): plugin("pictureOnlyColour"),
-				normalize(f"br({MONARCH}):space+dot1+dot4+dot8"): plugin("pictureStyle"),
+				normalize(f"br({device}):dot1+dot3+dot5"): plugin("pictureOutlines"),
+				normalize(f"br({device}):dot1+dot2+dot3"): plugin("pictureLines"),
+				normalize(f"br({device}):dot1+dot2"): plugin("pictureBrightness"),
+				normalize(f"br({device}):dot1+dot2+dot3+dot5"): plugin("pictureReversed"),
+				normalize(f"br({device}):dot1+dot4"): plugin("pictureOnlyColour"),
+				normalize(f"br({device}):space+dot1+dot4+dot8"): plugin("pictureStyle"),
 			},
 		)
 
@@ -935,8 +960,8 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			"table",
 			bindings={
 				**{normalize(key): table(cells[direction]) for key, direction in pad.items()},
-				normalize(f"br({MONARCH}):zoomIn"): plugin("flowNextColumns"),
-				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPreviousColumns"),
+				normalize(f"br({device}):zoomIn"): plugin("flowNextColumns"),
+				normalize(f"br({device}):zoomOut"): plugin("flowPreviousColumns"),
 			},
 		)
 		# Only the zoom keys, because this layer is on for as long as a reader is writing code, and
@@ -948,8 +973,8 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			"unwrapped",
 			autoEnable=True,
 			bindings={
-				normalize(f"br({MONARCH}):zoomIn"): plugin("flowPanLinesRight"),
-				normalize(f"br({MONARCH}):zoomOut"): plugin("flowPanLinesLeft"),
+				normalize(f"br({device}):zoomIn"): plugin("flowPanLinesRight"),
+				normalize(f"br({device}):zoomOut"): plugin("flowPanLinesLeft"),
 			},
 		)
 		# Browse mode's letters, for the pinned document on the display they are pressed on, with dot
@@ -973,14 +998,14 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 			"pinned",
 			bindings={
 				**{
-					normalize(f"br({MONARCH}):{dots}"): plugin(f"pinNext{name}")
+					normalize(f"br({device}):{dots}"): plugin(f"pinNext{name}")
 					for name, dots in letters.items()
 				},
 				**{
-					normalize(f"br({MONARCH}):{dots}+dot7"): plugin(f"pinPrevious{name}")
+					normalize(f"br({device}):{dots}+dot7"): plugin(f"pinPrevious{name}")
 					for name, dots in letters.items()
 				},
-				normalize(f"br({MONARCH}):dot2+dot3+dot4"): plugin("pinNextDocument"),
+				normalize(f"br({device}):dot2+dot3+dot4"): plugin("pinNextDocument"),
 			},
 		)
 		return [default, graphics, charts, pictures, tables, unwrapped, pinned]
@@ -1010,5 +1035,23 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				**keypad(("numpad5", "numLockNumpad5"), command("reportCurrentLine")),
 			},
 		)
-		return [default, graphics]
+		# The arrows a tester uses for a simulated display's keys: up and down pan, left and right are the
+		# zoom keys, pressed as the display's own so its layers decide them. Stays on, since the arrows
+		# are wanted again and again.
+		simulatedDisplay = SIMULATED_DISPLAYS[0]
+		simulated = newLayer(
+			device,
+			"simulatedDisplay",
+			"Simulated display",
+			style=STAYS_ON,
+			bindings={
+				normalize("kb:upArrow"): command("braille_scrollBack")._replace(actsFor=simulatedDisplay),
+				normalize("kb:downArrow"): command("braille_scrollForward")._replace(
+					actsFor=simulatedDisplay,
+				),
+				normalize("kb:leftArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomOut"),
+				normalize("kb:rightArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomIn"),
+			},
+		)
+		return [default, graphics, simulated]
 	return []

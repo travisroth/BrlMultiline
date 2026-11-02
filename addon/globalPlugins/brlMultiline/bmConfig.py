@@ -96,6 +96,9 @@ def flowModeKey(mode: str) -> str:
 configSpec = {
 	"tableLayouts": 'string(default="")',
 	"tableArrows": "boolean(default=False)",
+	"viewerAtStartup": "boolean(default=False)",
+	"viewerHoverRouting": "boolean(default=True)",
+	"viewerPosition": "int_list(default=list())",
 	"keyLayerDevices": {
 		"__many__": {
 			"layers": 'string(default="")',
@@ -143,6 +146,10 @@ configSpec = {
 - `tableArrows`: whether the plain arrow keys, home and end move by row and cell inside a
 	browse mode table. Off by default, since it changes NVDA's own keys. Not per display. See
 	`tableArrows`.
+- `viewerAtStartup`: whether the BrlMultiline viewer opens when NVDA starts. Not per display.
+- `viewerHoverRouting`: whether resting the mouse on a cell in the viewer presses its routing key.
+- `viewerPosition`: where the viewer window was last, as x and y. Empty until it has been moved
+	and closed, which leaves it where wx puts a new window.
 
 - `segmentsEnabled`: whether to divide the display at all. Turning it off overrides the
 	layout below without disturbing it, so that turning it back on restores the arrangement
@@ -889,6 +896,46 @@ def shouldArrowsMoveByRow() -> bool:
 def setArrowsMoveByRow(enabled: bool) -> None:
 	"""Store whether the arrow keys move by row and cell. See L{shouldArrowsMoveByRow}."""
 	config.conf[CONFIG_SECTION]["tableArrows"] = bool(enabled)
+
+
+def _readViewerSetting(key: str, default):
+	try:
+		return config.conf[CONFIG_SECTION][key]
+	except Exception:
+		log.debugWarning(f"Could not read {key}", exc_info=True)
+		return default
+
+
+def shouldOpenViewerAtStartup() -> bool:
+	""":return: whether the viewer opens when NVDA starts."""
+	return bool(_readViewerSetting("viewerAtStartup", False))
+
+
+def setOpenViewerAtStartup(enabled: bool) -> None:
+	config.conf[CONFIG_SECTION]["viewerAtStartup"] = bool(enabled)
+
+
+def shouldViewerHoverRoute() -> bool:
+	""":return: whether resting the mouse on a cell in the viewer presses its routing key."""
+	return bool(_readViewerSetting("viewerHoverRouting", True))
+
+
+def setViewerHoverRoute(enabled: bool) -> None:
+	config.conf[CONFIG_SECTION]["viewerHoverRouting"] = bool(enabled)
+
+
+def viewerPosition() -> tuple[int, int] | None:
+	""":return: where the viewer window was last, or None for wherever wx puts it."""
+	position = _readViewerSetting("viewerPosition", [])
+	try:
+		x, y = (int(value) for value in position)
+	except (TypeError, ValueError):
+		return None
+	return x, y
+
+
+def setViewerPosition(x: int, y: int) -> None:
+	config.conf[CONFIG_SECTION]["viewerPosition"] = [int(x), int(y)]
 
 
 def wantsTables() -> bool:

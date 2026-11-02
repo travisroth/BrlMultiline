@@ -92,10 +92,15 @@ class TestConstruction(VirtualDriverTestCase):
 		self.assertEqual([slot.driverName for slot in display.slots], [MONARCH, FOCUS])
 		self.assertEqual(display.slots[1].band.rowStart, 8)
 
-	def test_noDevicesConfiguredIsRefused(self):
-		with self.assertRaises(RuntimeError) as caught:
-			VirtualDisplay()
-		self.assertIn("no displays configured", str(caught.exception))
+	def test_noDevicesConfiguredSimulatesOne(self):
+		display = VirtualDisplay()
+		self.assertTrue(display.simulatedMode)
+		self.assertEqual([slot.driverName for slot in display.slots], ["brlMultilineSimulated1"])
+		self.assertEqual((display.numRows, display.numCols), (8, 32))
+
+	def test_configuredDevicesAreNotSimulated(self):
+		display = self.build(MONARCH)
+		self.assertFalse(display.simulatedMode)
 
 	def test_aMemberThatWillNotOpenIsDropped(self):
 		self.focus.failedOpens = -1

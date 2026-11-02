@@ -371,7 +371,8 @@ class TestTheLayer(unittest.TestCase):
 	def test_anOlderSavedSetIsGivenIt(self):
 		from brlMultiline import keyLayers
 
-		self.assertIn("pinnedDocument", keyLayers.SHIPPED_ADDITIONS[keyLayers.SHIPPED]["layers"])
+		added = [revision for revision, additions in keyLayers.SHIPPED_ADDITIONS.items() if "pinnedDocument" in additions.get("layers", ())]
+		self.assertEqual(added, [7])
 
 
 class TestNVDAsWords(unittest.TestCase):

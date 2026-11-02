@@ -85,8 +85,9 @@ Read the files in this order:
 16. [braille-viewer-plan.md](braille-viewer-plan.md) — the plan for a viewer that shows a sighted
    teacher or tester every row, segment, member and pin, since NVDA's Braille Viewer forces one
    row, and for simulated mode, the combined display with no displays configured, which lets a
-   tester run the add-on as a Monarch, a Focus 80 or both with no hardware. Design only. Read it
-   before touching `pre_writeCells` or the combined display's members.
+   tester run the add-on as a Monarch, a Focus 80 or both with no hardware. Built and unit tested,
+   not yet tried in NVDA. Read it before touching `pre_writeCells` or the combined display's
+   members.
 17. [findings-from-code.md](findings-from-code.md) — hardware reports, review findings and earlier
    designs that were recorded only in code comments until the comments were trimmed, grouped by
    subsystem, each with the commit that holds the original wording. Read it when a rule in the

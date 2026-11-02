@@ -27,6 +27,11 @@ module file name.
 """
 
 
+SIMULATED_DRIVER_NAMES = ("brlMultilineSimulated1", "brlMultilineSimulated2")
+"""The members the composite simulates. Duplicated from `brlMultilineVirtual.virtualLayout`, for
+the reason the module docstring gives. See docs/design/braille-viewer-plan.md."""
+
+
 class DeviceInfo(NamedTuple):
 	"""One physical display's place in the composite."""
 
@@ -236,6 +241,17 @@ def isVirtualDisplay(display=None) -> bool:
 		handler = braille.handler
 		display = handler.display if handler is not None else None
 	return display is not None and getattr(display, "name", None) == VIRTUAL_DISPLAY_NAME
+
+
+def isSimulatedMode(display=None) -> bool:
+	"""Say whether the composite is simulating a display because none are configured.
+
+	:param display: the display to test, or None for the one NVDA is driving.
+	"""
+	if display is None:
+		handler = braille.handler
+		display = handler.display if handler is not None else None
+	return isVirtualDisplay(display) and bool(getattr(display, "simulatedMode", False))
 
 
 def deviceMap(display=None) -> list[DeviceInfo]:

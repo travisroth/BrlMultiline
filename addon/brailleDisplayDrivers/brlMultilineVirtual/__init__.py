@@ -34,14 +34,16 @@ import extensionPoints
 from braille.display import _getDisplayDriver
 from logHandler import log
 
-from . import ackPatch, events, gestures, handover, memberGuard, vdConfig
+from . import ackPatch, events, gestures, handover, memberGuard, simulated, vdConfig
 from .deviceSlot import DeviceSlot
 from .virtualLayout import (
 	DEFAULT_PORT,
+	SIMULATED_DRIVER_NAMES,
 	DeviceBand,
 	DeviceSpec,
 	VirtualGeometry,
 	deadColumnCount,
+	isSimulated,
 	memberShape,
 	sliceBandCells,
 	stackDevices,
@@ -154,11 +156,13 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 			specs = vdConfig.getDevices()
 		except ValueError as error:
 			raise RuntimeError(f"BrlMultiline virtual display is misconfigured: {error}") from error
-		if not specs:
-			raise RuntimeError(
-				"BrlMultiline virtual display has no displays configured. "
-				"Choose them in NVDA menu, Preferences, Settings, Braille Multiline.",
-			)
+		self.simulatedMode = not specs
+		"""Whether no displays are configured, so a simulated one stands in. Only an empty list:
+		configured displays that are all away fail as before, rather than hide that from the reader.
+		See docs/design/braille-viewer-plan.md, Simulated mode."""
+		if self.simulatedMode:
+			specs = [DeviceSpec(SIMULATED_DRIVER_NAMES[0])]
+			log.info("BrlMultiline: no displays configured, so simulating one")
 
 		# NVDA constructs this driver before terminating the one it is replacing, so a member
 		# the user is switching away from is still held open at this point. It is taken over
@@ -235,7 +239,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 
 			geometry = stackDevices([_shapeOf(driver, spec) for spec, driver in opened])
 			self._slots = [
-				DeviceSlot(spec, driver, band, onFailure=self._memberFailed)
+				self._newSlot(spec, driver, band)
 				for (spec, driver), band in zip(opened, geometry.bands, strict=True)
 			]
 		except Exception:
@@ -342,7 +346,7 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 		"""
 		numRows, numCols = _shapeOf(driver, spec)
 		band = DeviceBand(rowStart=0, numRows=numRows, numCols=numCols)
-		slot = DeviceSlot(spec, driver, band, onFailure=self._memberFailed)
+		slot = self._newSlot(spec, driver, band)
 		order = [each.driverName for each in self._specs]
 		for index, existing in enumerate(self._slots):
 			if existing.driverName == spec.driverName:
@@ -354,6 +358,31 @@ class BrailleDisplayDriver(braille.display.driver.BrailleDisplayDriver, baseObje
 				self._slots.insert(index, slot)
 				return
 		self._slots.append(slot)
+
+	def _newSlot(self, spec: DeviceSpec, driver, band: DeviceBand) -> DeviceSlot:
+		"""Put a member in a slot, and listen for a simulated member changing shape."""
+		slot = DeviceSlot(spec, driver, band, onFailure=self._memberFailed)
+		if isinstance(driver, simulated.SimulatedDisplay):
+			driver.onShapeChanged = lambda: self._memberReshaped(slot)
+		return slot
+
+	def _memberReshaped(self, slot: DeviceSlot) -> None:
+		"""Lay the display out again around a member that has changed shape.
+
+		Rebuilt above even where the composite stays the same size, since the segments follow each
+		member's band.
+
+		:param slot: the member, already its new shape.
+		"""
+		if slot.failed or not any(each is slot for each in self._slots):
+			return
+		numRows, numCols = _shapeOf(slot.driver, slot.spec)
+		slot.band = DeviceBand(rowStart=slot.band.rowStart, numRows=numRows, numCols=numCols)
+		slot.invalidate()
+		size = (self.numRows, self.numCols)
+		self._relayout()
+		if self._installed and size == (self.numRows, self.numCols):
+			self._announceMembership()
 
 	def _retireSlot(self, slot: DeviceSlot) -> None:
 		"""Let go of a member that has been replaced, without letting its death be fatal."""
@@ -770,13 +799,13 @@ def _isPresent(spec: DeviceSpec) -> bool:
 	"""Ask Windows whether anything this member could be is there.
 
 	A filter: True means worth trying, since a paired Bluetooth display is listed while off;
-	False is trustworthy. A member with its own port, or one `bdDetect` has no data for, is
-	always attempted.
+	False is trustworthy. A simulated member, a member with its own port, or one `bdDetect` has
+	no data for, is always attempted.
 
 	:param spec: the member to look for.
 	:return: whether to attempt it.
 	"""
-	if spec.port and spec.port != DEFAULT_PORT:
+	if isSimulated(spec.driverName) or (spec.port and spec.port != DEFAULT_PORT):
 		return True
 	try:
 		import bdDetect
@@ -890,7 +919,10 @@ def _openDriver(
 	"""
 	attempts = OPEN_ATTEMPTS if attempts is None else attempts
 	try:
-		driverClass = _getDisplayDriver(spec.driverName)
+		if isSimulated(spec.driverName):
+			driverClass = simulated.driverClassFor(spec.driverName)
+		else:
+			driverClass = _getDisplayDriver(spec.driverName)
 	except ImportError:
 		log.error(f"BrlMultiline: no braille display driver named {spec.driverName!r}")
 		return None

@@ -9,8 +9,9 @@ Read [nvda-api-notes.md](nvda-api-notes.md), [architecture.md](architecture.md) 
 [virtual-display-plan.md](virtual-display-plan.md) first. Line numbers are from NVDA master in
 `C:\code\nvda` (2026.3.0dev) and will drift.
 
-Status: design only. Nothing here is built, and the findings below come from reading the code,
-not from a run.
+Status: built and unit tested, not yet tried in NVDA. Every step of "Order of work" is in; the
+sections below describe what was built, and where it differs from the first design they say so.
+The findings about NVDA's viewer come from reading the code, not from a run.
 
 ## Verdict
 
@@ -115,9 +116,11 @@ A class in `brlMultilineVirtual/simulated.py`, a `BrailleDisplayDriver` subclass
 loads by name, since it is not at the top of a `brailleDisplayDrivers` package. The composite
 constructs it directly.
 
-1. It has a reserved driver name, `simulated1`, and a second, `simulated2`. Member names have to
-   be unique (`vdConfig.getDevices` refuses one driver twice), and key layers and gestures are
-   keyed on them. `vdConfig` refuses the reserved names as real drivers.
+1. It has a reserved driver name, `brlMultilineSimulated1`, and a second, `brlMultilineSimulated2`
+   (`virtualLayout.SIMULATED_DRIVER_NAMES`, duplicated in the plugin's `devices`). Member names
+   have to be unique (`vdConfig.getDevices` refuses one driver twice), and key layers and gestures
+   are keyed on them. The prefix keeps them from meeting a real driver's name, so `vdConfig` needed
+   no change.
 2. Its shape is a driver setting: a model to imitate, with a custom size besides. The models to
    start with:
    1. Monarch at 8 rows of 32, drawable at 96 by 40 pins.
@@ -127,22 +130,28 @@ constructs it directly.
    5. Custom rows and columns, through `NumericDriverSetting`, not drawable.
    The setting reaches NVDA's braille settings with no new code: the composite already offers
    every member's settings there, named for the member (`_get_supportedSettings`).
-3. Changing the shape sets `numRows` and `numCols` and asks the composite to lay itself out
-   again, through a callback the composite gives it. The composite's `_relayout` then raises
-   `displaySizeChanged` and `membersChanged`, and the plugin rebuilds. The Monarch driver's own
-   `_announceGeometry` does nothing inside a composite, because `handler.display` is the
-   composite, not the Monarch; whether a pitch change on a combined Monarch is followed today is
-   worth checking while this is built.
+3. Changing the shape sets `numRows` and `numCols` and calls `onShapeChanged`, which the composite
+   sets when it puts the member in a slot (`_newSlot`). The composite's `_memberReshaped` gives the
+   slot its new band and lays the display out again: `displaySizeChanged` when the composite's size
+   changed, `membersChanged` when it did not, and the plugin rebuilds either way. The Monarch
+   driver's own `_announceGeometry` does nothing inside a composite, because `handler.display` is
+   the composite, not the Monarch; whether a pitch change on a combined Monarch is followed is
+   still to be checked on hardware. The same callback would answer it if it is not.
 4. `display(cells)` keeps the cells and does nothing else. `isThreadSafe` is False, since there is
    no I/O to move off the main thread. It has no `_dev`, so `DeviceSlot.watchForDisconnect`
    already leaves it alone.
 5. A drawable model publishes the graphics capability: `graphicsSize`, `newGraphicsBuffer`,
-   `setGraphicsOverlay`, `clearGraphicsOverlay` and `lastTouch`. The buffer is the Monarch
-   driver's `PinBuffer`, which imports nothing and can be shared. The driver composites overlays
-   over the cells as the Monarch driver does, and keeps the resulting pin image for the viewer.
-6. It raises its keys as `br(simulated1):<key>` through `inputCore`, as a real member does from
-   its read loop, with the Monarch's key names whatever its shape. `gestures.py` already rebases
-   a member's routing index onto the composite by its slot. See "Input".
+   `setGraphicsOverlay`, `clearGraphicsOverlay`, `lastTouch` and `lastRoutingPin`. A model that
+   cannot draw raises `AttributeError` for each, so `graphics._isDrawable` does not find it. The
+   buffer is the Monarch driver's `PinBuffer`, imported from that package when first asked for. The
+   member keeps its overlays and does not composite them: the viewer composes every drawable
+   display the same way, from `graphics.overlayChanged` (see "Pins"). It does not draw glyphs, so
+   the glyph setting has no effect on it.
+6. It raises its keys as `br(brlMultilineSimulated1):<key>` through `inputCore`, as a real member
+   does from its read loop (`pressKey`), with the Monarch's key names whatever its shape: `panLeft`,
+   `panRight`, `zoomIn`, `zoomOut` and `routing`. Its own gesture map binds panning and routing.
+   `gestures.py` already rebases a member's routing index onto the composite by its slot. See
+   "Input".
 
 ### What changes in `brlMultilineVirtual`
 
@@ -150,22 +159,23 @@ Not a significant change. The composite already treats a member as any object wi
 interface in a slot, and every part that matters reads the slot, not NVDA's driver list. The
 changes:
 
-1. The constructor: an empty list means the default simulated member, not `RuntimeError`.
+1. The constructor: an empty list means the default simulated member, not `RuntimeError`, and
+   `simulatedMode` says so.
 2. `_openDriver`: a reserved name constructs the simulated class rather than calling
    `_getDisplayDriver`. `_isPresent` answers True for it without asking `bdDetect`.
-3. `vdConfig`: reserve the two names.
-4. The relayout callback for a simulated member whose shape changes.
-5. The new `simulated.py`.
+3. `_newSlot` and `_memberReshaped`, for a simulated member whose shape changes.
+4. The new `simulated.py`.
 
 Already right, with nothing to change: `DeviceSlot` writes, change detection and the guard; the
 settings proxies; the gesture map and routing rebase; `_relayout` and `membersChanged`;
-`graphics.findSurface`, which looks for a drawable member among the slots; `devices.deviceMap`.
+`devices.deviceMap`. `graphics.findSurface` gained `findSurfaces`, every drawable member rather than
+the first, for the viewer; `findSurface` is now the first of them.
 
 Outside the driver package:
 
 1. The combined display settings (`settingsPanel._addable`) list NVDA's drivers from
-   `getDisplayList`. The two simulated members are added to that list, with descriptions, and
-   `settingsPanel.displayDescriptions` learns their names for everywhere else that names a member.
+   `getDisplayList`. `settingsPanel.displayDescriptions` adds the two simulated members after them
+   (`simulatedDescriptions`), so they can be added there and are named wherever a member is named.
 2. `keyLayers.defaultLayers` gives a simulated member the Monarch's layers, under its own name.
 3. Tests that expect an empty list to raise are changed to expect simulated mode.
 
@@ -178,12 +188,25 @@ here so it is not mistaken for a fault.
 ### Who it is for
 
 Testers and development. Readers meet it only by choosing the BrlMultiline display without
-configuring any displays for it, and are told that it is simulated.
+configuring any displays for it, and are told that it is simulated: the log says so as the display
+opens, and `viewer.BrailleViewerTool.afterRebuild` says so once in speech, a few seconds later so
+startup's own speech does not cut it off.
 
 ## The viewer
 
-A window of the add-on's own, "BrlMultiline Viewer", opened from the add-on's menu and by an
-unassigned command. It works with real displays, simulated ones and any mixture.
+A window of the add-on's own, "BrlMultiline Viewer", opened from "BrlMultiline viewer" in NVDA's
+Tools menu and by an unassigned command, "Viewer: opens or closes the window showing what is on
+the braille displays". It works with real displays, simulated ones and any mixture.
+
+Three modules, as the add-on's other features are split:
+
+1. `viewerModel.py`, NVDA free: the `Picture` one paint needs, and every rule about it: which
+   member a row is on, which cells are dead, the text under each row, a drawing member's pins, and
+   the cell index a point routes to.
+2. `viewer.py`: `BrailleViewerTool`, the feature object the plugin holds as `viewer`, with its
+   `ViewerHost` protocol. It listens for cells and drawings, builds the `Picture`, and routes.
+3. `viewerWindow.py`: the `wx.Frame` that paints a `Picture` and turns a resting mouse into a
+   routing press.
 
 ### What it shows
 
@@ -196,7 +219,14 @@ unassigned command. It works with real displays, simulated ones and any mixture.
    container's `windowRawText` joins every segment's text into one string and cannot be laid out
    by row. Contracted braille will misalign the text with the cells now and then, as it does in
    NVDA's viewer.
-5. The cursor, where the handler's cursor position puts it.
+   Each row's own text, from `BrailleBufferSegment.windowRowTexts`, which asks NVDA's buffer for
+   the text behind that row's cells. Cutting the segment's text into pieces its width wide ran
+   ahead of the braille, since a contracted row holds more words than its cells hold characters.
+   A row's text is cut at the segment's width, so the end of a long row's text is not shown.
+   A flow has no text to show: `FlowSegment.update` keeps cells and leaves `rawText` empty, so
+   the rows of a flow, such as a pinned window on the Monarch, are braille with nothing under
+   them. Showing text there would mean the flow keeping each row's text as it lays rows out.
+5. The cursor, which needs nothing of its own: NVDA writes it into the cells on every blink.
 6. The pins of a drawing, where a display has one up. See "Pins".
 
 ### Where the cells come from
@@ -211,14 +241,15 @@ so the viewer keeps the last frame and redraws only when it differs, on a timer,
 Pins never pass through `pre_writeCells`: the add-on sends them to the driver as an overlay
 (`graphics.GraphicsSurface.show` and `hide`). The viewer needs to hear about them.
 
-1. `graphics.py` gets an `extensionPoints.Action` notified from `show` and `hide` with the
-   surface, the key, the pin rectangle and the buffer. The viewer composites what it is told over
-   that member's band.
-2. A simulated display already holds the composited pin image, so for it the viewer can read the
-   driver's image directly and the two must agree. The tests check that they do.
+`graphics.overlayChanged` is notified from `show` and `hide` with the surface, the key, the pin
+rectangle and the buffer. The viewer keeps them per display in `viewerModel.OverlayStore`, and
+`Picture.pins` composes a member's cells and drawings the way the Monarch driver composes its
+panel. Simulated and real displays go the same way, so there is one composition to keep right.
 
-The pin grid is drawn as dots at the member's own pitch, `GraphicsSurface.pinsPerRow` and
-`pinsPerCol`, so a Monarch at 8 lines shows the blank dot row between braille lines.
+A member is drawn as pins only while it has a drawing up, and as braille characters otherwise,
+which a sighted reader reads faster. The pins are dots at the member's own pitch,
+`GraphicsSurface.pinsPerRow` and `pinsPerCol`, so a Monarch at 8 lines shows the blank dot row
+between braille lines.
 
 ### Drawing it
 
@@ -230,14 +261,22 @@ viewer looks like NVDA's.
 ### What is borrowed from NVDA's viewer
 
 1. The font and `fonts.importFonts()`.
-2. Hover routing: `TextCellHover` and `CharCellBackgroundColorAnimation`, which take a text
-   control and will need a small adapter for a painted panel, or a copy kept in step.
-3. `BrailleViewerGesture_RouteTo(index)`. The index is a position on the whole display, and
-   `DisplayContainer.routeTo` already turns that into a segment and a position within it, so
-   routing across rows, segments and members needs no new routing code.
-4. The window behaviour: shown without activating, stays on top, saves its position per monitor
-   layout, shows at startup if asked, clears on the lock screen and is blocked on the secure
-   desktop (`gui.blockAction.Context.SECURE_MODE`).
+2. Hover routing: NVDA's hover delay setting, `brailleViewer.secondsOfHoverToActivate`, and its
+   colours. Not `TextCellHover` itself, which is bound to a text control; the window does the same
+   in a few lines with a `wx.CallLater`.
+3. `BrailleViewerGesture_RouteTo(index)`, for a real display. The index is a position on the whole
+   display, and `DisplayContainer.routeTo` already turns that into a segment and a position within
+   it, so routing across rows, segments and members needs no new routing code.
+4. The window behaviour: shown without activating, stays on top, saves its position
+   (`bmConfig.viewerPosition`, one position rather than one per monitor layout), shows at startup
+   if asked, shows nothing while Windows is locked, and is not offered in a secure session or on
+   the lock screen.
+
+The first run in NVDA, opening it from the Tools menu, showed it minimized, with nothing done to
+minimize it, and it has no minimize button to undo that. The cause was not found. The window now
+restores itself without taking the focus whenever it finds itself minimized as it opens or
+resizes (`ViewerFrame._showNormal`), and logs that it did. It does not save a minimized window's
+position, and ignores a saved position that is on no monitor.
 
 ### NVDA's own viewer
 
@@ -279,11 +318,18 @@ It ships with few bindings:
 
 For the second, the arrows press the simulated display's own `zoomOut` and `zoomIn` keys rather
 than naming the commands, so the context rules stay in one place: the simulated display has the
-Monarch's key names whatever its shape, and ships the Monarch's layers. That needs a layer
-target that presses a display's key, where `Target.key` today presses only keyboard keys. If that
-target turns out to be more than it is worth, the fallback is a keyboard layer per context
-mirroring the Monarch's table, graphics and unwrapped layers, at the cost of a second copy of
-those rules.
+Monarch's key names whatever its shape, and ships the Monarch's layers
+(`keyLayers.defaultLayers`). That is a new kind of layer target, `keyLayers.DISPLAY_KEY`, stored as
+`{"displayKey": "br(driverName):keyId"}`, which `keyLayerDispatch` runs by raising the key as that
+display's own gesture; the layered keys dialog lists it beside the emulated keyboard keys. The
+fallback, a keyboard layer per context, was not needed.
+
+So the arrows behave as the Monarch's zoom keys do, including where those do nothing: in a table
+they turn pages only while the simulated display's table layer is on, which comes on from the layer
+key, as on the Monarch. With a drawing up, and on unwrapped lines, its layer comes on by itself.
+
+The layer is revision 8 of `keyLayers.SHIPPED_ADDITIONS`, so a keyboard layer set saved before it
+is given it.
 
 The layer is turned on and off with the keyboard's layer key, and escape leaves it, as for the
 keyboard's other layers. It does not come on by itself, since while it is on the arrows do not
@@ -306,13 +352,27 @@ move the caret.
 Steps 1 and 2 are each useful alone: the simulator for testing with NVDA's speech and log, the
 viewer for a teacher beside a reader with real hardware.
 
+All of them are built and unit tested (`test_simulatedDisplay`, `test_viewerModel`, `test_viewer`,
+and additions to `test_virtualDriver`, `test_keyLayers`, `test_keyLayerDispatch` and
+`test_graphics`). Still to do in NVDA itself:
+
+1. Choose the BrlMultiline display with no displays set up, and check that a Flow runs on the
+   simulated Monarch with nothing else configured.
+2. Open the viewer from the Tools menu and check its painting: rows, member labels, dead cells,
+   segment outlines, the text under the rows, and a drawing as pins.
+3. Hover routing on a simulated display and on real hardware.
+4. The keyboard's Simulated display layer: panning, and the zoom keys with a drawing up.
+5. Changing the simulated model in NVDA's braille settings.
+6. NVDA's own viewer opened on the Monarch, for the message, and whether a Monarch pitch change
+   inside a combined display is followed.
+
 ## Open questions
 
 1. ~~Should the simulator be hidden from NVDA's display list behind a setting?~~ **Settled: it
    is not in the list at all.** It is a member of the BrlMultiline display, and simulated mode is
    that display with none configured. See "Why not a driver of its own".
 2. Two reserved names for two simulated members follow a rule that exists for real hardware. If
-   testers want three, add `simulated3`. Wait for a tester who wants three.
+   testers want three, add `brlMultilineSimulated3`. Wait for a tester who wants three.
 3. ~~Which keyboard keys stand for a simulated display's keys.~~ **Settled: a keyboard layer.**
    See "The keyboard layer".
 4. ~~Whether the viewer should show the speech too.~~ **Settled: no.** NVDA's Speech Viewer

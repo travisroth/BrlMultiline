@@ -20,6 +20,7 @@ HOSTS = {
 	"TableHost": ("tableCommands", ["tableCommands"]),
 	"FocusHost": ("focusDisplays", ["focusDisplays"]),
 	"ContextHost": ("keyLayerContexts", ["keyLayerContexts", "keyLayerCommands"]),
+	"ViewerHost": ("viewer", ["viewer"]),
 }
 """Each protocol: the module defining it, and the modules whose use of the plugin it lists."""
 

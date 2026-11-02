@@ -36,6 +36,19 @@ A list naming it would recurse slowly, so it is refused where the list is read. 
 from the driver class, which imports NVDA.
 """
 
+SIMULATED_DRIVER_NAMES = ("brlMultilineSimulated1", "brlMultilineSimulated2")
+"""The members the composite simulates rather than opens, in the order simulated mode uses them.
+
+Two names, since a member name has to be unique. See docs/design/braille-viewer-plan.md, The
+simulated member. Duplicated in the global plugin's `devices`, which does not import the driver.
+"""
+
+
+def isSimulated(driverName: str) -> bool:
+	""":return: whether a member name is one the composite simulates."""
+	return driverName in SIMULATED_DRIVER_NAMES
+
+
 DEFAULT_PORT = "auto"
 """The port used when an entry names only a driver.
 

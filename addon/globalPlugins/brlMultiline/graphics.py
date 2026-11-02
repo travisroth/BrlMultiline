@@ -18,6 +18,7 @@ grid divided by the cell grid, which gives any display's pitch.
 from typing import NamedTuple
 
 import braille
+import extensionPoints
 from logHandler import log
 
 from .devices import VIRTUAL_DISPLAY_NAME
@@ -27,7 +28,17 @@ __all__ = [
 	"GraphicsSurface",
 	"PinRect",
 	"findSurface",
+	"findSurfaces",
+	"overlayChanged",
 ]
+
+overlayChanged = extensionPoints.Action()
+"""Raised when a drawing goes on a display or comes off, for the viewer, which cannot see pins in
+the cells NVDA writes.
+
+Handlers are called with `surface`, `key` (None for every drawing on that display), and `rect` and
+`buffer` for a drawing put up, both None for one taken off.
+"""
 
 
 class PinRect(NamedTuple):
@@ -122,10 +133,11 @@ class GraphicsSurface(NamedTuple):
 		"""
 		try:
 			self.driver.setGraphicsOverlay(key, rect.x, rect.y, buffer)
-			return True
 		except Exception:
 			log.error("BrlMultiline: could not put a drawing on the display", exc_info=True)
 			return False
+		_notify(surface=self, key=key, rect=rect, buffer=buffer)
+		return True
 
 	def hide(self, key: str | None = None) -> None:
 		"""Take a drawing off the display.
@@ -138,6 +150,7 @@ class GraphicsSurface(NamedTuple):
 			self.driver.clearGraphicsOverlay(key)
 		except Exception:
 			log.debugWarning("BrlMultiline: could not clear a drawing", exc_info=True)
+		_notify(surface=self, key=key, rect=None, buffer=None)
 
 	def touchedPin(self) -> tuple | None:
 		""":return: the pin last touched on this display, or None if none was.
@@ -214,6 +227,14 @@ class GraphicsSurface(NamedTuple):
 		return self.rowStart + y // perRow, x // perCol
 
 
+def _notify(**kwargs) -> None:
+	"""Raise `overlayChanged`, never letting a listener break the drawing."""
+	try:
+		overlayChanged.notify(**kwargs)
+	except Exception:
+		log.error("BrlMultiline: a listener for drawings failed", exc_info=True)
+
+
 def _isDrawable(driver) -> bool:
 	""":return: whether a driver publishes the graphics capability.
 
@@ -261,17 +282,28 @@ def findSurface(display=None) -> GraphicsSurface | None:
 	"""Find the display that can draw, whether or not it is behind a composite.
 
 	:param display: the display to look at, or None for the one NVDA is driving.
-	:return: the surface, or None where nothing attached can draw, the ordinary case.
+	:return: the first such surface, or None where nothing attached can draw, the ordinary case.
+	"""
+	surfaces = findSurfaces(display)
+	return surfaces[0] if surfaces else None
+
+
+def findSurfaces(display=None) -> list[GraphicsSurface]:
+	"""Find every display that can draw, top first.
+
+	:param display: the display to look at, or None for the one NVDA is driving.
+	:return: the surfaces, empty where nothing attached can draw.
 	"""
 	if display is None:
 		handler = braille.handler
 		display = handler.display if handler is not None else None
 	if display is None:
-		return None
+		return []
 	if _isDrawable(display):
-		return _surfaceFor(display, rowStart=0)
+		surface = _surfaceFor(display, rowStart=0)
+		return [surface] if surface is not None else []
 	if getattr(display, "name", None) != VIRTUAL_DISPLAY_NAME:
-		return None
+		return []
 	try:
 		slots = list(display.slots)
 	except Exception:
@@ -279,7 +311,8 @@ def findSurface(display=None) -> GraphicsSurface | None:
 			"BrlMultiline: could not read the composite's members to find one that draws",
 			exc_info=True,
 		)
-		return None
+		return []
+	surfaces = []
 	for slot in slots:
 		# A member the composite has given up on has had its rows taken out of the geometry,
 		# so a drawing placed against its band would land on rows that now belong to someone
@@ -294,5 +327,7 @@ def findSurface(display=None) -> GraphicsSurface | None:
 		except Exception:
 			log.error("BrlMultiline: a drawable member would not say where its band starts", exc_info=True)
 			continue
-		return _surfaceFor(driver, rowStart=rowStart)
-	return None
+		surface = _surfaceFor(driver, rowStart=rowStart)
+		if surface is not None:
+			surfaces.append(surface)
+	return surfaces

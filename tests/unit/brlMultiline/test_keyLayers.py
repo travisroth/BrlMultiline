@@ -687,5 +687,48 @@ class TestNormalize(unittest.TestCase):
 		self.assertIsInstance(newLayer(MONARCH, "x"), Layer)
 
 
+class TestSimulatedDisplays(unittest.TestCase):
+	"""Keys for the combined display's simulated members. See docs/design/braille-viewer-plan.md, Input."""
+
+	SIMULATED = keyLayers.SIMULATED_DISPLAYS[0]
+
+	def test_aSimulatedDisplayShipsTheMonarchsLayersUnderItsOwnName(self):
+		monarchSet = keyLayers.defaultLayers(MONARCH, PLUGIN)
+		simulatedSet = keyLayers.defaultLayers(self.SIMULATED, PLUGIN)
+		self.assertEqual([layer.id for layer in simulatedSet], [layer.id for layer in monarchSet])
+		tables = LayerSet(self.SIMULATED, tuple(simulatedSet)).get("table")
+		zoomIn = normalize(f"br({self.SIMULATED}):zoomIn")
+		self.assertEqual(tables.bindings[zoomIn].scriptName, "flowNextColumns")
+		self.assertFalse(any(MONARCH.lower() in identifier for layer in simulatedSet for identifier in layer.bindings))
+
+	def test_theKeyboardsArrowsAreTheSimulatedDisplaysKeys(self):
+		layer = LayerSet(KEYBOARD, tuple(keyLayers.defaultLayers(KEYBOARD, PLUGIN))).get("simulatedDisplay")
+		self.assertEqual(layer.style, STAYS_ON)
+		up = layer.bindings[normalize("kb:upArrow")]
+		self.assertEqual((up.scriptName, up.actsFor), ("braille_scrollBack", self.SIMULATED))
+		down = layer.bindings[normalize("kb:downArrow")]
+		self.assertEqual((down.scriptName, down.actsFor), ("braille_scrollForward", self.SIMULATED))
+		self.assertEqual(
+			layer.bindings[normalize("kb:rightArrow")],
+			Target.displayKey(f"br({self.SIMULATED}):zoomIn"),
+		)
+		self.assertEqual(
+			layer.bindings[normalize("kb:leftArrow")],
+			Target.displayKey(f"br({self.SIMULATED}):zoomOut"),
+		)
+
+	def test_aDisplayKeyIsStoredAndReadBack(self):
+		target = Target.displayKey(f"br({self.SIMULATED}):zoomIn")
+		self.assertEqual(target.toStored(), {"displayKey": f"br({self.SIMULATED}):zoomIn"})
+		self.assertEqual(Target.fromStored(target.toStored()), target)
+		self.assertIsNone(Target.fromStored({"displayKey": "zoomIn"}))
+
+	def test_aKeyboardSetSavedBeforeItIsGivenTheLayer(self):
+		saved = LayerSet(KEYBOARD, tuple(keyLayers.defaultLayers(KEYBOARD, PLUGIN)[:2]))
+		layers, added = keyLayers.withShippedAdditions(saved, keyLayers.defaultLayers(KEYBOARD, PLUGIN), 7)
+		self.assertIsNotNone(layers.get("simulatedDisplay"))
+		self.assertEqual(added, ["the Simulated display layer"])
+
+
 if __name__ == "__main__":
 	unittest.main()

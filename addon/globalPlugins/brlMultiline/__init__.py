@@ -53,6 +53,7 @@ from .focusDisplays import FocusDisplayMoves
 from .keyLayerCommands import KeyLayerCommands
 from .pictureCommands import PictureCommands
 from .tableCommands import PagedTable, TableCommands
+from .viewer import BrailleViewerTool
 from .flowTableSource import TableRequest, wantsColumns
 from .graphicsMode import FIT as GRAPHICS_FIT, PANEL_NAME as GRAPHICS_PANEL_NAME, GraphicsMode
 from . import devices as devicesModule
@@ -203,6 +204,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.tables = TableCommands(self)
 		"""The commands that lay a table out in columns and arrange it. See `tableCommands`."""
 
+		self.viewer = BrailleViewerTool(self)
+		"""The viewer window, for a sighted person beside the reader. See `viewer`."""
+
 		self._activePanels: list[BraillePanel] = []
 		"""Claims laid over whatever view is in force, in the order they were made.
 
@@ -263,6 +267,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.error("BrlMultiline: could not put the braille substitutions in force", exc_info=True)
 		self._substitutionsMenuItem = self._addSubstitutionsMenuItem()
 		self._onTerminate(self._removeSubstitutionsMenuItem)
+		self._onTerminate(self.viewer.terminate)
+		self.viewer.install()
 		categories = gui.settingsDialogs.NVDASettingsDialog.categoryClasses
 		for panel in (BrailleMultilineSettingsPanel, FlowSettingsPanel, VirtualDisplaySettingsPanel):
 			categories.append(panel)
@@ -293,6 +299,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._membersChanged.register(self._handleDisplayChanged)
 			self._onTerminate(self._membersChanged.unregister, self._handleDisplayChanged)
 		self.rebuildBuffer()
+		self.viewer.afterRebuild()
 
 	def _onTerminate(self, undo, *args) -> None:
 		"""Register one step of the teardown, to run on terminate in reverse order of registering.
@@ -1054,6 +1061,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		:param isNowLocked: whether the session has just locked, rather than unlocked.
 		"""
 		self.refreshMonitors()
+		self.viewer.onSessionLock(isNowLocked)
 
 	def _reportMemberDivergence(self) -> None:
 		"""Say so in the log when the configured members are not the ones the composite opened for.
@@ -1113,6 +1121,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# A display that reconnected while a drawing is up, or a profile whose layers were just read,
 		# can each change which layers should be on without the drawing changing. Both come here.
 		self.keyLayerCommands.reconcile()
+		self.viewer.afterRebuild()
 
 	# Object monitoring
 
@@ -1483,6 +1492,25 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		else:
 			# Translators: reported when the display stops being divided into segments.
 			ui.message(_("Segments off"))
+
+	@script(
+		# Translators: input help message for a command that opens or closes the BrlMultiline viewer,
+		# a window showing a sighted person what is on the braille displays.
+		description=_("Viewer: opens or closes the window showing what is on the braille displays"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_toggleViewer(self, gesture):
+		wasOpen = self.viewer.isOpen
+		if self.viewer.toggle():
+			# Translators: reported when the BrlMultiline viewer opens.
+			ui.message(_("Viewer open"))
+		elif wasOpen:
+			# Translators: reported when the BrlMultiline viewer closes.
+			ui.message(_("Viewer closed"))
+		else:
+			# Translators: reported when the BrlMultiline viewer cannot open, in a secure session or on
+			# the lock screen.
+			ui.message(_("The viewer is not available here"))
 
 	@script(
 		# Translators: input help message for a command. An app layout is an application
