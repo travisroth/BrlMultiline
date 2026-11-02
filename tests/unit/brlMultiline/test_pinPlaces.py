@@ -397,6 +397,32 @@ class TestWhereAResizedPinIsReadTo(PlacesTestCase):
 		self.assertIsNone(self.plugin.resizePin(self.keyOf("the table"), 3))
 		self.assertEqual(monitor.columnPlan().page, page)
 
+	def anchorOf(self, monitor):
+		anchor = monitor.controller.window.anchor
+		return anchor.blockId, anchor.rowIndex
+
+	def test_aTableRowWrappedOverSeveralRowsKeepsTheRowItWasPannedTo(self):
+		_document, monitor = self.pinTable([["heading"], ["word " * 100], ["last row"]])
+		self.assertTrue(monitor.controller.panForward())
+		blockId, row = self.anchorOf(monitor)
+		self.assertEqual(blockId.bookmark, 2)
+		self.assertGreater(row, 0)
+		self.assertIsNone(self.plugin.resizePin(self.keyOf("the table"), 3))
+		self.assertEqual(self.topRow(monitor), 2)
+		self.assertEqual(self.anchorOf(monitor)[1], row)
+
+	def test_aListItemWrappedOverSeveralRowsKeepsTheRowItWasPannedTo(self):
+		items = fakeRun(["long item " * 60, "next item", "last item"])
+		self.plugin.pinToPlace(FOCUS_PLACE, items[0], before=True)
+		key, monitor = next(iter(self.plugin.pins.items()))
+		self.assertTrue(monitor.controller.panForward())
+		row = self.anchorOf(monitor)[1]
+		self.assertGreater(row, 0)
+		self.assertIsNone(self.plugin.resizePin(key, 3))
+		control = monitor.controller
+		self.assertIs(control.regionFor(control.window.anchor.blockId).obj, items[0])
+		self.assertEqual(self.anchorOf(monitor)[1], row)
+
 
 class TestPlacesBesideTheFlow(PlacesTestCase):
 	def setUp(self):

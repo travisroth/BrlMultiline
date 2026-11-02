@@ -123,6 +123,10 @@ class ReadingPlace:
 	columnPage: int | None = None
 	"""Which page of a table too wide for the band was showing."""
 
+	cell: int | None = None
+	"""For a table row or an object, the first cell of its region on the top row, so a row or
+	item wrapped over several rows goes back to the row it was panned to."""
+
 
 class Arrival(enum.Enum):
 	"""What `FlowController._arrive` found when it brought the window to the reader."""
@@ -385,13 +389,34 @@ class FlowController(PanelOwner):
 				table=self.source.handle.key,
 				row=row,
 				columnPage=None if plan is None or plan.isEmpty else plan.page,
+				cell=self._topCell(),
 			)
 		if getattr(self.source, "positionOf", None) is not None:
 			position = self.topPosition()
 			return ReadingPlace(position=position) if position is not None else None
 		blockId = getattr(self.window.anchor, "blockId", None)
 		obj = getattr(self.regionFor(blockId), "obj", None) if blockId is not None else None
-		return ReadingPlace(obj=obj) if obj is not None else None
+		return ReadingPlace(obj=obj, cell=self._topCell()) if obj is not None else None
+
+	def _topCell(self) -> int | None:
+		""":return: the first cell of the top block's region on the window's top row, or None."""
+		anchor = self.window.anchor
+		if anchor is None or not self.window.hasBlock(anchor.blockId):
+			return None
+		rendered = self.window.blocks[self.window.blockIndex(anchor.blockId)]
+		if not rendered.holdsRow(anchor.rowIndex):
+			return None
+		positions = rendered.positions[anchor.rowIndex - rendered.rowOffset]
+		return next((where for where in positions if where != NO_POSITION), None)
+
+	def _enterAtCell(self, cell: int | None) -> None:
+		"""Bring the row of the top block that holds a cell of its region to the top. See `_rowOfCell`."""
+		blockId = getattr(self.window.anchor, "blockId", None)
+		if not cell or blockId is None:
+			return
+		row = self._rowOfCell(blockId, cell)
+		if row:
+			self.window.enterAt(blockId, row)
 
 	def enterAtPlace(self, place: ReadingPlace) -> bool:
 		"""Place the window afresh where `readingPlace` said an earlier flow was read to.
@@ -411,6 +436,7 @@ class FlowController(PanelOwner):
 				return False
 			# No prompt above: the object was at the top, and goes back there.
 			self._enterAtBlock(result, 0, fill=False)
+			self._enterAtCell(place.cell)
 			self.fill()
 			return True
 
@@ -430,6 +456,7 @@ class FlowController(PanelOwner):
 				log.debugWarning(f"A flow could not enter at a table row: {result.kind} {result.message}")
 				return False
 			self._enterAtBlock(result, 0, fill=False)
+			self._enterAtCell(place.cell)
 			self.fill()
 			return True
 
@@ -472,10 +499,9 @@ class FlowController(PanelOwner):
 		:return: the row, counted within the whole block, or None where it cannot be read.
 		"""
 		region = self.regionFor(blockId)
-		block = self.blocks.get(blockId)
 		getInfo = getattr(region, "getTextInfoForBraillePos", None)
 		cells = len(getattr(region, "brailleCells", None) or ())
-		if getInfo is None or block is None or not cells or not self.window.hasBlock(blockId):
+		if getInfo is None or not cells:
 			return None
 		try:
 
@@ -494,7 +520,16 @@ class FlowController(PanelOwner):
 		except Exception:
 			log.debugWarning("Could not find the cell a position is at", exc_info=True)
 			return None
-		at = low
+		return self._rowOfCell(blockId, low)
+
+	def _rowOfCell(self, blockId: "BlockId", at: int) -> int | None:
+		"""The row of a block that one cell of its region is on, rendering the chunk that holds it.
+
+		:return: the row, counted within the whole block, or None where it cannot be found.
+		"""
+		block = self.blocks.get(blockId)
+		if block is None or not self.window.hasBlock(blockId):
+			return None
 		rendered = self.window.blocks[self.window.blockIndex(blockId)]
 		if not _holdsCell(rendered, at):
 			began = self.source.budget.clock()

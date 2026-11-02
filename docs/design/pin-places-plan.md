@@ -148,7 +148,9 @@ What building it settled that the design left open, and where it differs.
    its key. A pin read as a flow is rebuilt at its new size and put back where the reader had
    panned it to: `FlowController.readingPlace` takes the position at the top of the old flow,
    for a run of objects the object at the top, and for a table its row and page of columns, and
-   `enterAtPlace` enters the new one there without moving the caret. In a paragraph wrapped over
+   `enterAtPlace` enters the new one there without moving the caret. An object or table row
+   wrapped over several rows keeps the row it was panned to, by the first cell of its region on
+   the top row, which is a place in its content and so outlives a change of width. In a paragraph wrapped over
    several rows, the row holding that position goes to the top, not the paragraph's first row;
    past the first chunk of a long paragraph, its cell is found by halving through the region
    and only the chunk around it is rendered, as for a caret (`_renderActiveChunk`). Found in testing, where a page shrinking from eight rows to four went
