@@ -151,6 +151,17 @@ class TestCopying(ViewerTestCase):
 		self.assertFalse(self.tool.copyToClipboard())
 		self.assertEqual(clipboard, [])
 
+	def test_nothingIsCopiedWithNoBraille(self):
+		# NVDA's "No braille" is a driver with no cells, not the absence of a display.
+		self.handler.display = types.SimpleNamespace(name="noBraille", numRows=1, numCols=0, numCells=0)
+		self.assertFalse(self.tool.copyToClipboard())
+		self.assertEqual(clipboard, [])
+
+	def test_aBlankDisplayIsStillCopied(self):
+		pre_writeCells.notify(cells=[0] * (9 * 80))
+		self.assertTrue(self.tool.copyToClipboard())
+		self.assertIn("Simulated display 1", clipboard[-1])
+
 	def test_nothingIsCopiedWhileLocked(self):
 		self.tool.onSessionLock(True)
 		self.assertFalse(self.tool.copyToClipboard())

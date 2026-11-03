@@ -201,6 +201,9 @@ class BrailleViewerTool:
 			return Picture(0, 0, ())
 		dimensions = handler.displayDimensions
 		numRows, numCols = dimensions.numRows, dimensions.numCols
+		if numRows <= 0 or numCols <= 0:
+			# NVDA's "No braille" is a display with no cells, not the absence of one.
+			return Picture(0, 0, ())
 		if self._labels is None:
 			self._labels = displayDescriptions()
 		labels = self._labels
