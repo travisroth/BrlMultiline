@@ -245,6 +245,22 @@ class FlowBufferSegment(BrailleBufferSegment):
 			return super()._get_windowBrailleCells()
 		return self.cells()
 
+	def windowRowTexts(self) -> list[str]:
+		""":return: the text behind each row of the band, from the controller rather than NVDA's
+		buffer, which a flow does not lay out."""
+		if self.controller is None:
+			return super().windowRowTexts()
+		try:
+			return self.controller.windowRowTexts()
+		except Exception:
+			log.debugWarning("A flow could not say what its rows read", exc_info=True)
+			return []
+
+	def _get_windowRawText(self) -> str:
+		if self.controller is None:
+			return super()._get_windowRawText()
+		return " ".join(text.strip() for text in self.windowRowTexts() if text.strip())
+
 	def _get_cursorWindowPos(self) -> int | None:
 		if self.controller is None:
 			return super()._get_cursorWindowPos()

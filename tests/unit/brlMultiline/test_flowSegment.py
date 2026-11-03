@@ -139,6 +139,15 @@ class TestWhatTheBandShows(unittest.TestCase):
 		cells = container.windowBrailleCells
 		self.assertEqual(cells[:7], [ord(character) for character in "Heading"])
 
+	def test_theBandSaysWhatEachRowReads(self):
+		_, segment, _ = attachedBand(["Heading", "body text here"])
+		self.assertEqual(segment.windowRowTexts()[:3], ["Heading", "body tex", "t here"])
+		self.assertEqual(len(segment.windowRowTexts()), ROWS)
+
+	def test_theBandsTextIsItsRowsTogether(self):
+		_, segment, _ = attachedBand(["Heading", "body"])
+		self.assertEqual(segment.windowRawText, "Heading body")
+
 	def test_detachingLeavesTheBandBlank(self):
 		# A detached band is an ordinary empty segment again, and the container composites
 		# the cells it does not cover as blank.

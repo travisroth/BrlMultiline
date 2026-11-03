@@ -74,12 +74,54 @@ def rowText(region, rendered, rowIndex: int) -> str:
 	:param rowIndex: which row of it.
 	:return: the text on that row, empty if it cannot be worked out.
 	"""
-	raw = getattr(region, "rawText", "") or ""
 	localRow = rowIndex - rendered.rowOffset
-	if not raw or not 0 <= localRow < len(rendered.positions):
+	if not 0 <= localRow < len(rendered.positions):
 		return ""
-	positions = [where for where in rendered.positions[localRow] if where != NO_POSITION]
-	if not positions:
+	return textForPositions(region, [where for where in rendered.positions[localRow] if where != NO_POSITION])
+
+
+def alignedRowText(region, rendered, rowIndex: int) -> str:
+	"""What one row of a rendered block reads, with each run of text under its own cells.
+
+	A run is the cells between padding, such as an indent or the gap between table columns.
+	Each run's text starts at the column its cells start at, or a space after the run before
+	it where contracted text has run past that.
+
+	:param region: the region the block was read through.
+	:param rendered: the rendering the row belongs to.
+	:param rowIndex: which row of it.
+	:return: the text on that row, empty if it cannot be worked out.
+	"""
+	localRow = rowIndex - rendered.rowOffset
+	if not 0 <= localRow < len(rendered.positions):
+		return ""
+	runs: list[tuple[int, list[int]]] = []
+	previous = NO_POSITION
+	for col, where in enumerate(rendered.positions[localRow]):
+		if where != NO_POSITION:
+			if previous == NO_POSITION:
+				runs.append((col, []))
+			runs[-1][1].append(where)
+		previous = where
+	line = ""
+	for col, positions in runs:
+		text = textForPositions(region, positions)
+		if not text:
+			continue
+		start = col if not line else max(col, len(line.rstrip()) + 1)
+		line = line.ljust(start) + text
+	return line
+
+
+def textForPositions(region, positions: list[int]) -> str:
+	"""What a run of a block's positions reads as.
+
+	:param region: the region the block was read through.
+	:param positions: positions in the region's cells, padding already dropped, in order.
+	:return: the text they came from, empty if it cannot be worked out.
+	"""
+	raw = getattr(region, "rawText", "") or ""
+	if not raw or not positions:
 		return ""
 	own = getattr(region, "textForPositions", None)
 	if own is not None:
@@ -2693,6 +2735,34 @@ class FlowController(PanelOwner):
 	def placements(self) -> list[str]:
 		""":return: what has moved the band lately, oldest first. See `_note`."""
 		return list(self._placements)
+
+	def windowRowTexts(self) -> list[str]:
+		"""The text behind each row of the band, in the order `cells` draws them.
+
+		The pinned row first where it is drawn, then each row of the window. A row that reads
+		nothing, such as a gap, a drawn rule or the mark for more to fetch, is empty.
+
+		:return: one string per row of the band, each run of text under its own cells.
+		"""
+		texts: list[str] = []
+		if self.pinned is not None and self.pinned.rows:
+			region = self.pinnedBlock.region if self.pinnedBlock is not None else None
+			texts.append(alignedRowText(region, self.pinned, 0))
+		try:
+			visible = self.window.visibleRows()
+		except LookupError:
+			return texts
+		for row in visible:
+			text = ""
+			if row.kind is RowKind.CONTENT and row.blockId is not None:
+				try:
+					rendered = self.window.blocks[self.window.blockIndex(row.blockId)]
+				except LookupError:
+					rendered = None
+				if rendered is not None and not rendered.isDecoration:
+					text = alignedRowText(self.regionFor(row.blockId), rendered, row.rowIndex)
+			texts.append(text)
+		return texts
 
 	def describeRows(self) -> list[str]:
 		"""What each row of the band holds, in words rather than cells.

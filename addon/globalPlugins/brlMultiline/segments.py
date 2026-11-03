@@ -276,10 +276,7 @@ class BrailleBufferSegment(BrailleBuffer):
 		return found
 
 	def windowRowTexts(self) -> list[str]:
-		""":return: the text behind each row of the window, as NVDA maps cells back to text.
-
-		Empty strings for a segment that keeps no text, as a flow does.
-		"""
+		""":return: the text behind each row of the window, as NVDA maps cells back to text."""
 		return [self.bufferPositionsToRawText(row.start, row.end) for row in self._windowRowBufferOffsets]
 
 	def append(self, region: Region) -> None:

@@ -223,9 +223,17 @@ Three modules, as the add-on's other features are split:
    the text behind that row's cells. Cutting the segment's text into pieces its width wide ran
    ahead of the braille, since a contracted row holds more words than its cells hold characters.
    A row's text is cut at the segment's width, so the end of a long row's text is not shown.
-   A flow has no text to show: `FlowSegment.update` keeps cells and leaves `rawText` empty, so
-   the rows of a flow, such as a pinned window on the Monarch, are braille with nothing under
-   them. Showing text there would mean the flow keeping each row's text as it lays rows out.
+   A flow lays out its own rows, not NVDA's buffer, so `FlowBufferSegment.windowRowTexts` asks
+   its controller instead (`FlowController.windowRowTexts`): the pinned row first where one is
+   drawn, then each row of the window, blank for a gap, a drawn rule or the mark for more to
+   fetch. Every segment is a `FlowBufferSegment`, so this covers a pinned object as well as the
+   focus band. Each rendered block keeps the position each of its cells came from, and the
+   region's `brailleToRawPos` turns those into text, as `rowText` already did for the dry run.
+   `alignedRowText` puts each run of cells between padding under its own column, so an
+   indented line's text starts under its first cell and a table's columns stay apart; where
+   contracted text runs past the next run's column, the next run starts a space after it. The
+   segment's `windowRawText` is its rows' text joined by spaces, which NVDA also passes on with
+   each write.
 5. The cursor, which needs nothing of its own: NVDA writes it into the cells on every blink.
 6. The pins of a drawing, where a display has one up. See "Pins".
 
