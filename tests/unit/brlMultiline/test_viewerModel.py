@@ -24,6 +24,7 @@ from brlMultiline.viewerModel import (  # noqa: E402
 	ViewerLayout,
 	brailleCharacter,
 	memberCellIndex,
+	pinsAsBraille,
 	routingIndex,
 )
 
@@ -150,6 +151,43 @@ class TestPins(unittest.TestCase):
 
 	def test_aMemberThatCannotDrawHasNoPins(self):
 		self.assertEqual(composite().pins(FOCUS), [])
+
+
+class TestText(unittest.TestCase):
+	def test_eachRowIsBrailleOverItsText(self):
+		cells = [0] * 9 * 80
+		cells[0:2] = [0b1, 0b11]
+		cells[8 * 80] = 0b1001
+		segments = (
+			Segment(SegmentRect(0, 0, 8, 32), "ab"),
+			Segment(SegmentRect(8, 0, 1, 80), "c"),
+		)
+		lines = composite(cells, segments=segments).toText().split("\r\n")
+		self.assertEqual(lines[:3], ["Monarch", "⠁⠃", "ab"])
+		self.assertEqual(len(lines), 1 + 8 * 2 + 1 + 2)
+		self.assertEqual(lines[-3:], ["Focus", "⠉", "c"])
+
+	def test_aDeadCellIsLeftOut(self):
+		cells = [0b1] * 9 * 80
+		lines = composite(cells).toText().split("\r\n")
+		self.assertEqual(lines[1], "⠁" * 32)
+		self.assertEqual(lines[-2], "⠁" * 80)
+
+	def test_aDrawingIsWrittenAsPins(self):
+		picture = composite(overlays={MONARCH.name: (Overlay(0, 0, buffer(["OO", ".O", "O.", "OO"])),)})
+		lines = picture.toText().split("\r\n")
+		self.assertEqual(lines[0], "Monarch")
+		self.assertEqual(lines[1], brailleCharacter(0b11011101))
+		self.assertEqual(len(lines), 1 + 10 + 1 + 2)
+		self.assertEqual(lines[11], "Focus")
+
+	def test_nothingToShowIsEmpty(self):
+		self.assertEqual(Picture(0, 0, ()).toText(), "")
+
+	def test_pinsArePackedTwoAcrossAndFourDown(self):
+		grid = [[False] * 3 for _ in range(5)]
+		grid[4][2] = True
+		self.assertEqual(pinsAsBraille(grid), ["", "⠀⠁"])
 
 
 class TestOverlayStore(unittest.TestCase):

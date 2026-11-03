@@ -87,8 +87,15 @@ class ViewerFrame(wx.Frame):
 		self._closing = False
 
 		self.Bind(wx.EVT_CLOSE, self._onClose)
+		frameSizer = wx.BoxSizer(wx.VERTICAL)
+		# The controls sit in a panel of their own, as in NVDA's viewer, since only a panel moves
+		# between its controls with tab.
+		container = wx.Panel(self)
+		frameSizer.Add(container, proportion=1, flag=wx.EXPAND)
 		sizer = wx.BoxSizer(wx.VERTICAL)
-		self._panel = wx.Panel(self, style=wx.FULL_REPAINT_ON_RESIZE)
+		self._panel = wx.Panel(container, style=wx.FULL_REPAINT_ON_RESIZE)
+		# Painted, with nothing a screen reader could read, so tab passes it by.
+		self._panel.SetCanFocus(False)
 		self._panel.SetDoubleBuffered(True)
 		self._panel.SetBackgroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW))
 		self._panel.Bind(wx.EVT_PAINT, self._onPaint)
@@ -98,7 +105,7 @@ class ViewerFrame(wx.Frame):
 
 		options = wx.BoxSizer(wx.HORIZONTAL)
 		# Translators: the checkbox in the BrlMultiline viewer that opens it whenever NVDA starts.
-		self._atStartup = wx.CheckBox(self, label=_("&Show the viewer when NVDA starts"))
+		self._atStartup = wx.CheckBox(container, label=_("&Show the viewer when NVDA starts"))
 		self._atStartup.SetValue(bmConfig.shouldOpenViewerAtStartup())
 		self._atStartup.Bind(
 			wx.EVT_CHECKBOX,
@@ -107,12 +114,13 @@ class ViewerFrame(wx.Frame):
 		options.Add(self._atStartup, flag=wx.ALL, border=4)
 		# Translators: the checkbox in the BrlMultiline viewer that presses a cell's routing key when the
 		# mouse rests on it.
-		self._hover = wx.CheckBox(self, label=_("&Hover for cell routing"))
+		self._hover = wx.CheckBox(container, label=_("&Hover for cell routing"))
 		self._hover.SetValue(bmConfig.shouldViewerHoverRoute())
 		self._hover.Bind(wx.EVT_CHECKBOX, self._onHoverChanged)
 		options.Add(self._hover, flag=wx.ALL, border=4)
 		sizer.Add(options)
-		self.SetSizer(sizer)
+		container.SetSizer(sizer)
+		self.SetSizer(frameSizer)
 
 		self._brailleFont = self._makeBrailleFont()
 		self._labelFont = wx.Font(wx.FontInfo(10).Bold())
@@ -147,6 +155,8 @@ class ViewerFrame(wx.Frame):
 		except Exception:
 			log.error("BrlMultiline: could not read what the viewer should show", exc_info=True)
 			return
+		# As in NVDA's viewer, the lock screen cannot change what happens at startup.
+		self._atStartup.Enable(not self._source.isLocked)
 		if self._hoverTracker.pictureChanged(self._picture, picture):
 			self._stopHoverTimer()
 		self._picture = picture

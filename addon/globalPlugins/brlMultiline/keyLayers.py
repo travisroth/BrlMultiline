@@ -62,7 +62,7 @@ A rule of its own, since escape has no NVDA command for the ordinary script rule
 modifiers it is another key, left to NVDA.
 """
 
-SHIPPED = 9
+SHIPPED = 10
 """Which additions to the shipped layers a stored set has already been given. See L{SHIPPED_ADDITIONS}.
 
 Written with every set saved. A set stored before this was written has none, and reads as 1.
@@ -128,6 +128,12 @@ SHIPPED_ADDITIONS = {
 	9: {
 		"bindings": {
 			"simulatedDisplay": ("kb:g", "kb:shift+g"),
+		},
+	},
+	# Copying what the displays show, braille over text, from the keyboard.
+	10: {
+		"bindings": {
+			"simulatedDisplay": ("kb:c",),
 		},
 	},
 }
@@ -619,7 +625,8 @@ def withShippedAdditions(layers: LayerSet, factory: Iterable, since: int) -> tup
 					new[identifier] = layer.bindings[identifier]
 			if new:
 				layers = layers.withLayer(replace(own, bindings={**own.bindings, **new}))
-				added.append(f"{len(new)} keys in the {own.name or own.id} layer")
+				keyWord = "key" if len(new) == 1 else "keys"
+				added.append(f"{len(new)} {keyWord} in the {own.name or own.id} layer")
 	return layers, added
 
 
@@ -1045,8 +1052,8 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 		# The keys a tester uses for a simulated display: up and down pan, left and right are the zoom
 		# keys, pressed as the display's own so its layers decide them, g draws the navigator object
 		# as a picture, as space with dots 1, 4 and 7 does on the Monarch, and shift with g takes the
-		# drawing off, as space with dots 7 and 8 does. Stays on, since the keys are
-		# wanted again and again.
+		# drawing off, as space with dots 7 and 8 does, and c copies what the displays show. Stays
+		# on, since the keys are wanted again and again.
 		simulatedDisplay = SIMULATED_DISPLAYS[0]
 		simulated = newLayer(
 			device,
@@ -1062,6 +1069,7 @@ def defaultLayers(device: str, pluginModule: str) -> list:
 				normalize("kb:rightArrow"): Target.displayKey(f"br({simulatedDisplay}):zoomIn"),
 				normalize("kb:g"): plugin("drawPicture", simulatedDisplay),
 				normalize("kb:shift+g"): plugin("toggleGraphics", simulatedDisplay),
+				normalize("kb:c"): plugin("copyViewer"),
 			},
 		)
 		return [default, graphics, simulated]

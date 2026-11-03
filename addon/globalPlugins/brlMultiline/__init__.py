@@ -1513,6 +1513,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("The viewer is not available here"))
 
 	@script(
+		# Translators: input help message for a command that copies what the braille displays show,
+		# as braille characters with the text behind each row below it.
+		description=_("Viewer: copies the braille on the displays, and the text behind it, to the clipboard"),
+		category=SCRIPT_CATEGORY,
+	)
+	def script_copyViewer(self, gesture):
+		if self.viewer.copyToClipboard():
+			# Translators: reported when what the braille displays show was copied to the clipboard.
+			ui.message(_("Braille copied"))
+		else:
+			# Translators: reported when there was no braille to copy, such as while no display is in use.
+			ui.message(_("No braille to copy"))
+
+	@script(
 		# Translators: input help message for a command. An app layout is an application
 		# arranging the display around where the focus is.
 		description=_("App layouts: sets them aside for now, or brings them back"),

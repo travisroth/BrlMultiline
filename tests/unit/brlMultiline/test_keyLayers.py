@@ -720,6 +720,8 @@ class TestSimulatedDisplays(unittest.TestCase):
 		self.assertEqual((draw.scriptName, draw.actsFor), ("drawPicture", self.SIMULATED))
 		off = layer.bindings[normalize("kb:shift+g")]
 		self.assertEqual((off.scriptName, off.actsFor), ("toggleGraphics", self.SIMULATED))
+		copy = layer.bindings[normalize("kb:c")]
+		self.assertEqual((copy.scriptName, copy.actsFor), ("copyViewer", None))
 
 	def test_aDisplayKeyIsStoredAndReadBack(self):
 		target = Target.displayKey(f"br({self.SIMULATED}):zoomIn")
@@ -742,6 +744,22 @@ class TestSimulatedDisplays(unittest.TestCase):
 		layers, added = keyLayers.withShippedAdditions(saved, factory, 8)
 		self.assertTrue(drawKeys <= set(layers.get("simulatedDisplay").bindings))
 		self.assertEqual(added, ["2 keys in the Simulated display layer"])
+
+	def test_aSetSavedBeforeCIsGivenC(self):
+		factory = keyLayers.defaultLayers(KEYBOARD, PLUGIN)
+		copyKey = normalize("kb:c")
+		saved = LayerSet(
+			KEYBOARD,
+			tuple(
+				replace_(layer, bindings={key: target for key, target in layer.bindings.items() if key != copyKey})
+				if layer.id == "simulatedDisplay"
+				else layer
+				for layer in factory
+			),
+		)
+		layers, added = keyLayers.withShippedAdditions(saved, factory, 9)
+		self.assertIn(copyKey, layers.get("simulatedDisplay").bindings)
+		self.assertEqual(added, ["1 key in the Simulated display layer"])
 
 	def test_aReadersOwnGIsKept(self):
 		factory = keyLayers.defaultLayers(KEYBOARD, PLUGIN)

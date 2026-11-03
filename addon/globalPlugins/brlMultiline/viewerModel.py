@@ -192,6 +192,51 @@ class Picture:
 						raisePin(overlay.x + x, overlay.y + y)
 		return grid
 
+	def toText(self) -> str:
+		"""Write out what the viewer shows, for someone checking braille output without a display.
+
+		Each display's name, then each of its rows as braille characters with the text behind
+		it on the line below. A display drawn as pins is written as braille characters of eight
+		pins each instead, since its cells are under the drawing. Blank cells and spaces at the
+		end of a line are left off.
+
+		:return: the lines joined by CRLF, or an empty string when there is nothing to show.
+		"""
+		lines: list[str] = []
+		rawTextRows = self.rawTextRows()
+		for member in self.members:
+			lines.append(member.label)
+			if self.showsPins(member):
+				lines.extend(pinsAsBraille(self.pins(member)))
+				continue
+			for row in range(member.rowStart, min(member.rowEnd, self.numRows)):
+				width = min(member.numCols, self.numCols)
+				braille = "".join(brailleCharacter(self.cell(row, col)) for col in range(width))
+				lines.append(braille.rstrip(brailleCharacter(0)))
+				lines.append(rawTextRows[row][:width].rstrip())
+		return "\r\n".join(lines)
+
+
+def pinsAsBraille(grid: list[list[bool]]) -> list[str]:
+	"""Pack a grid of pins into braille characters, two pins across and four down each.
+
+	:param grid: one list of raised or lowered pins per pin row.
+	:return: one line per four pin rows, with blank characters at the end left off.
+	"""
+	lines = []
+	width = max((len(row) for row in grid), default=0)
+	for top in range(0, len(grid), 4):
+		characters = []
+		for left in range(0, width, 2):
+			cell = 0
+			for bit, (dotX, dotY) in enumerate(BRAILLE_DOT_COORDS):
+				y, x = top + dotY, left + dotX
+				if y < len(grid) and x < len(grid[y]) and grid[y][x]:
+					cell |= 1 << bit
+			characters.append(brailleCharacter(cell))
+		lines.append("".join(characters).rstrip(brailleCharacter(0)))
+	return lines
+
 
 def brailleCharacter(cell: int) -> str:
 	""":return: the Unicode braille pattern for a cell's dots."""

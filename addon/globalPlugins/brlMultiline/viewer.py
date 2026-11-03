@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 import addonHandler
+import api
 import braille
 import gui
 import inputCore
@@ -254,6 +255,20 @@ class BrailleViewerTool:
 				rawText, rowTexts = "", ()
 			segments.append(Segment(rect, rawText, rowTexts))
 		return tuple(segments)
+
+	def copyToClipboard(self) -> bool:
+		"""Copy what the viewer shows, braille over text, whether or not the window is open.
+
+		:return: whether there was anything to copy and the clipboard took it.
+		"""
+		text = self.picture().toText()
+		if not text:
+			return False
+		try:
+			return bool(api.copyToClip(text))
+		except Exception:
+			log.debugWarning("BrlMultiline: could not copy the viewer's braille", exc_info=True)
+			return False
 
 	def route(self, picture: Picture, position: CellPosition) -> None:
 		"""Press the routing key on a cell the viewer was pointed at.

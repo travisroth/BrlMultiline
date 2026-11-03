@@ -280,6 +280,12 @@ viewer looks like NVDA's.
    if asked, shows nothing while Windows is locked, and is not offered in a secure session or on
    the lock screen.
 
+Its two check boxes sit in a panel of their own, as NVDA's viewer's do, so tab moves between them
+and space toggles them; a control placed straight on a frame is not in the tab order. The painted
+panel is left out of the tab order, since a screen reader finds nothing in it. Its text is reached
+by copying instead; see "Copying what the viewer shows". As in NVDA's viewer, the show at startup
+box is disabled while Windows is locked.
+
 The first run in NVDA, opening it from the Tools menu, showed it minimized, with nothing done to
 minimize it, and it has no minimize button to undo that. The cause was not found. The window now
 restores itself without taking the focus whenever it finds itself minimized as it opens or
@@ -294,6 +300,21 @@ if the display it was about has gone. Routing is refused while Windows is locked
 the window last had. Every cell write asks for a repaint, since the text under the cells can change
 while the cells do not; the window collapses those requests into one. Display names are read once
 per display change, not on every paint.
+
+### Copying what the viewer shows
+
+Asked for by the reader, 3 November 2026, for a blind developer testing a script's braille output
+with no braille display of their own. `Picture.toText` writes out what the viewer shows: each
+display's name, then each of its rows as Unicode braille characters with the text behind it on the
+line below, cut to that display's width. A display drawn as pins is written as braille characters
+of eight pins each, two across and four down (`pinsAsBraille`), since its cells are under the
+drawing. Blank cells and spaces at the end of a line are left off, so a screen reader does not read
+a row of blanks. Lines are joined by CRLF, for pasting into Windows editors.
+
+`BrailleViewerTool.copyToClipboard` copies it whether or not the window is open, since the person
+it is for does not need the window. The plugin's `copyViewer` script calls it and says whether
+anything was copied; nothing is, while Windows is locked or with no display. It has no gesture of
+its own, and is c in the keyboard's "Simulated display" layer.
 
 ### NVDA's own viewer
 
@@ -337,6 +358,8 @@ It ships with few bindings:
    in the layer that is on: in a table they turn its pages (`flowPreviousColumns`,
    `flowNextColumns`), with a drawing they zoom (`graphicsZoomOut`, `graphicsZoomIn`), and on
    unwrapped lines they pan them (`flowPanLinesLeft`, `flowPanLinesRight`).
+4. C copies what the viewer shows to the clipboard (`copyViewer`). See "Copying what the viewer
+   shows". It acts for no display, since it copies all of them.
 
 For the second, the arrows press the simulated display's own `zoomOut` and `zoomIn` keys rather
 than naming the commands, so the context rules stay in one place: the simulated display has the
@@ -352,7 +375,7 @@ key, as on the Monarch. With a drawing up, and on unwrapped lines, its layer com
 
 The layer is revision 8 of `keyLayers.SHIPPED_ADDITIONS`, so a keyboard layer set saved before it
 is given it. G and shift with g came after the layer was first tried, so they are revision 9, for a
-set saved with the layer but without them. The additions now take a keyboard key written whole, as
+set saved with the layer but without them, and c is revision 10. The additions now take a keyboard key written whole, as
 `kb:g`, where before they could add only braille keys.
 
 The layer is turned on and off with the keyboard's layer key, and escape leaves it, as for the

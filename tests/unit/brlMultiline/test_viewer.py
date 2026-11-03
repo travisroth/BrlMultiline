@@ -14,6 +14,7 @@ from ._stubs import (
 	FakeBrailleHandler,
 	callAfterQueue,
 	callLaterQueue,
+	clipboard,
 	fakeVirtualDisplay,
 	installStubs,
 	pre_writeCells,
@@ -131,6 +132,29 @@ class TestPicture(ViewerTestCase):
 		self.assertEqual(len(self.tool.picture().overlays[SIMULATED]), 1)
 		surface.hide()
 		self.assertEqual(self.tool.picture().overlays, {})
+
+
+class TestCopying(ViewerTestCase):
+	def setUp(self):
+		super().setUp()
+		clipboard.clear()
+
+	def test_theBrailleAndTextAreCopiedWithTheWindowClosed(self):
+		pre_writeCells.notify(cells=[0b1] + [0] * (9 * 80 - 1), rawText="", currentCellCount=9 * 80)
+		self.assertFalse(self.tool.isOpen)
+		self.assertTrue(self.tool.copyToClipboard())
+		lines = clipboard[-1].split("\r\n")
+		self.assertEqual(lines[:3], ["Simulated display 1", "⠁", "on the simulated display"])
+
+	def test_nothingIsCopiedWithNoDisplay(self):
+		self.handler.display = None
+		self.assertFalse(self.tool.copyToClipboard())
+		self.assertEqual(clipboard, [])
+
+	def test_nothingIsCopiedWhileLocked(self):
+		self.tool.onSessionLock(True)
+		self.assertFalse(self.tool.copyToClipboard())
+		self.assertEqual(clipboard, [])
 
 
 class TestRouting(ViewerTestCase):
