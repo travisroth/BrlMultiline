@@ -547,9 +547,14 @@ here. It is written up because anything that closes and reopens a braille displa
 it, and because the workarounds in this driver make no sense without it.
 
 `hwIo.base.IoBase.close` closes the device handle but never clears `self._file`, and
-`IoBase.__del__` calls `close` again. `Bulk.close` and `Hid.close` have the same shape. So
-finalising a driver that was already terminated closes its handle a **second** time — and by
-then Windows may have handed that handle value to something else.
+`IoBase.__del__` calls `close` again. `Bulk.close` has the same shape. So finalising a driver
+that was already terminated closes its handle a **second** time — and by then Windows may have
+handed that handle value to something else.
+
+`Hid` is the exception, and the first draft of this section was wrong to group it in: it has
+guarded its close with `_isClosed` and cleared `_file` since NVDA 2021's HID braille support.
+A HID member was never at risk. The Focus, which is what failed, opens through `hwIo.Bulk` on
+USB and `hwIo.Serial` on Bluetooth, and `Bulk` was the real culprit.
 
 The log shows it precisely. The Focus was released and reopened successfully, identifying
 itself as it should; `handler.display = newDisplay` then dropped the last reference to the
@@ -577,8 +582,39 @@ Two changes follow, and both are better than what they replace:
 - **Closed members are kept alive.** `_retiredDrivers` holds every member this driver has
   terminated, so the finaliser never runs while NVDA is up. A deliberate, bounded leak of
   inert objects — a closed driver has had its receive callback cleared and its reads
-  cancelled — one per member per display switch. It should be removed once `hwIo` clears its
-  handle fields on close.
+  cancelled — one per member per display switch.
+
+#### Fixed upstream in NVDA 2027.1
+
+NVDA PR 20697 ("Fix overlapped I/O defects in `hwIo.base.IoBase`", part of issue 20569) landed
+on master on 2026-09-28 and repairs this. `IoBase.close` now acts only on the first call, and
+`Bulk.close` marks both handles invalid after closing them, so the finaliser cannot close a
+recycled handle. Issue 20569 is an independent audit of the same file that reached the same
+conclusion about `close` not being idempotent, including the same note that `Hid` and `Serial`
+already guarded theirs.
+
+It is in 2027.1 only, **not** in 2026.3.1, and this add-on still supports 2026.3. So the leak
+cannot simply be deleted: `_needsRetiring` asks the member's own device whether it predates the
+fix, by looking for the write completion event that the repaired `IoBase.__init__` creates, and
+only then keeps the driver alive. On a fixed NVDA `_retiredDrivers` stays empty. The probe reads
+a private attribute, as the rest of this driver already does; if that attribute is ever renamed
+the probe fails towards keeping the driver alive, which is the harmless direction.
+
+One thing PR 20697 did **not** change: the write still waits with `GetOverlappedResult(...,
+bWait=True)` and no deadline. It now waits on the write's own event rather than the device
+handle, which makes it correct and, if anything, more likely to wait forever, since a completing
+read no longer releases it by accident. `hidWrite` and `MemberGuard` are still needed, and
+issue 20569 neither reported nor proposed a timeout.
+
+The other thing neither 20697 nor 20569 touched is `Hid.close`, which has always cleared
+`_file` and never `_writeFile`. On every NVDA, before the fix and after it, a closed HID device
+still carries the write handle value it closed. This is the one part of the defect that is
+wholly defensible from here: the Monarch driver writes to `_writeFile`, so `_sendReport` asks
+`_deviceIsClosed` first and raises rather than writing to whatever Windows has since reissued
+that value to. A close can arrive from outside this driver -- a display handover, or the
+virtual display releasing a member -- while a frame is already on its way to the I/O thread,
+so the window is real rather than theoretical. The raise goes down `_writePins`' existing
+lost-device path, because a closed device is a lost device.
 
 ### Three other things review found
 

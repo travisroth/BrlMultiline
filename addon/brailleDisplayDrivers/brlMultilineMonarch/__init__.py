@@ -28,6 +28,7 @@ What that buys, beyond graphics:
 """
 
 import collections
+import errno
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -124,6 +125,25 @@ def _stopTimer(timer) -> None:
 		timer.Stop()
 	except Exception:
 		log.debugWarning("BrlMultiline: could not stop a Monarch timer", exc_info=True)
+
+
+def _deviceIsClosed(device) -> bool:
+	"""Whether this device's handle has been closed, so that writing to it is a mistake.
+
+	`hwIo.hid.Hid.close` marks itself `_isClosed` and clears `_file`, but leaves `_writeFile`
+	holding the handle value it has just closed, and Windows may have handed that value to
+	something else since. `_sendReport` writes to `_writeFile`, so it asks here first.
+
+	Either marker is enough, so that this still answers on an NVDA that keeps only one of them.
+	A device carrying neither is taken to be open, which is what one NVDA has not closed looks
+	like; this cannot invent a closed state, only recognise one.
+
+	:param device: the `hwIo.hid.Hid` a report is about to go to.
+	:return: whether it has been closed.
+	"""
+	if getattr(device, "_isClosed", False):
+		return True
+	return hasattr(device, "_file") and device._file is None
 
 
 class CellGlyph:
@@ -1254,10 +1274,29 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			self._retryDelay = POLL_INTERVAL
 
 	def _sendReport(self, device, data: bytes) -> None:
-		"""Write one output report, giving up if the device does not take it in time.
+		"""Write one output report, unless the device is closed, and not for longer than allowed.
+
+		The closed check is the driver's own, not NVDA's: `hwIo.hid.Hid.close` leaves
+		`_writeFile` pointing at the handle it closed, so a write arriving after a close — from
+		a display handover, or from a frame already on NVDA's I/O thread — would go to whatever
+		Windows has since reissued that value to. Raised rather than dropped, because a closed
+		device is a lost device, and `_writePins` already knows how to lose one.
+
+		:param device: the `hwIo.hid.Hid` this driver opened.
+		:param data: the report, ID in the first byte.
+		:raises OSError: if the device has been closed, or the write failed.
+		:raises hidWrite.WriteTimedOut: if the device did not take it within `WRITE_TIMEOUT`.
+		"""
+		if _deviceIsClosed(device):
+			raise OSError(errno.EBADF, "the Monarch's device has been closed")
+		self._writeReport(device, data)
+
+	def _writeReport(self, device, data: bytes) -> None:
+		"""Hand one report to Windows, giving up if the device does not take it in time.
 
 		Not `device.write`, which waits indefinitely. The buffer comes from the device's own
-		`_prepareWriteBuffer`, as `write` would send it.
+		`_prepareWriteBuffer`, as `write` would send it. Separate from `_sendReport` so that the
+		tests can replace the part that needs a real Windows handle and keep the rest.
 
 		:param device: the open `hwIo.hid.Hid`.
 		:param data: the report, ID in the first byte.

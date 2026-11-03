@@ -21,6 +21,7 @@ import unittest
 
 from ._virtualStubs import (
 	DriverSetting,
+	FakeDevice,
 	GlobalGestureMap,
 	StubBrailleDisplayGesture,
 	bgThread,
@@ -1157,11 +1158,26 @@ class TestHandover(VirtualDriverTestCase):
 		self.assertEqual(focusDevice.terminated, 1)
 
 	def test_aClosedMemberIsKeptAliveRatherThanFinalised(self):
-		"""NVDA's hwIo closes an already closed handle when the driver is finalised."""
+		"""An older NVDA's hwIo closes an already closed handle when the driver is finalised."""
 		display = self.build(MONARCH)
-		device = self.monarch.instances[0]
+		driver = self.monarch.instances[0]
+		driver._dev = FakeDevice()
 		display.terminate()
-		self.assertIn(device, driverModule._retiredDrivers)
+		self.assertIn(driver, driverModule._retiredDrivers)
+
+	def test_aClosedMemberIsLetGoOnAnNvdaWithTheHwIoFix(self):
+		"""Once `close` clears its handle fields there is nothing to keep the driver alive for."""
+		display = self.build(MONARCH)
+		driver = self.monarch.instances[0]
+		driver._dev = FakeDevice(hasWriteEvent=True)
+		display.terminate()
+		self.assertEqual([], driverModule._retiredDrivers)
+
+	def test_aMemberWithNoDeviceIsLetGo(self):
+		"""No `hwIo` handle, so no handle that could be closed a second time."""
+		display = self.build(MONARCH)
+		display.terminate()
+		self.assertEqual([], driverModule._retiredDrivers)
 
 	def test_aDisplayThatIsNotAMemberIsLeftToNVDA(self):
 		other = makeMemberDriver("someOtherDisplay")
@@ -1372,11 +1388,23 @@ class GestureTestCase(VirtualDriverTestCase):
 		self.monarchBand = self.display.slots[0].band
 		self.focusBand = self.display.slots[1].band
 
-	def press(self, source, cellIndexes=None, gestureId="routing"):
+	def press(self, source, cellIndexes=None, gestureId="routing", model=None):
 		"""Send a gesture the way a member driver does, through the extension point."""
-		gesture = StubBrailleDisplayGesture(source, gestureId, cellIndexes)
+		gesture = StubBrailleDisplayGesture(source, gestureId, cellIndexes, model)
 		self.assertTrue(decide_executeGesture.decide(gesture=gesture))
 		return gesture
+
+	def scriptsFor(self, gesture):
+		"""Resolve a gesture against the composite's map the way NVDA does: identifier by identifier.
+
+		:return: every script the map answers with, in identifier order, so the first is the
+			one that would win.
+		"""
+		return [
+			script
+			for identifier in gesture.identifiers
+			for script in self.display.gestureMap.getScriptsForGesture(identifier)
+		]
 
 
 class TestCellIndexTranslation(GestureTestCase):
@@ -1561,6 +1589,61 @@ class TestGestureMap(GestureTestCase):
 			list(self.display.gestureMap.getScriptsForGesture(f"br({FOCUS}):topRouting1")),
 			[(int, "scrollBack")],
 		)
+
+
+class TestModelSpecificMemberGestures(GestureTestCase):
+	"""Members that report a model, which every member driver with model gestures does.
+
+	`freedomScientific` reports one, as do `alva`, `baum`, `brltty`, `dotPad`, `eurobraille`,
+	`handyTech` and `hims`. Their model identifier comes before the generic one, so it is the
+	binding that wins when both exist.
+	"""
+
+	FOCUS_MODEL = "focus40"
+
+	def test_aModelGestureOffersTheModelIdentifierFirst(self):
+		gesture = self.press(FOCUS, gestureId="leftBumperBarUp", model=self.FOCUS_MODEL)
+		self.assertEqual(
+			[
+				f"br({FOCUS}.{self.FOCUS_MODEL}):leftBumperBarUp",
+				f"br({FOCUS}):leftBumperBarUp",
+			],
+			gesture.identifiers,
+		)
+
+	def test_aModelRoutingKeyOffersAllFourFormsInOrder(self):
+		gesture = self.press(FOCUS, [5], model=self.FOCUS_MODEL)
+		self.assertEqual(
+			[
+				f"br({FOCUS}.{self.FOCUS_MODEL}):routing6",
+				f"br({FOCUS}.{self.FOCUS_MODEL}):routing",
+				f"br({FOCUS}):routing6",
+				f"br({FOCUS}):routing",
+			],
+			gesture.identifiers,
+		)
+
+	def test_aModelBindingWinsOverAGenericOne(self):
+		self.monarch.gestureMap = GlobalGestureMap()
+		self.focus.gestureMap = GlobalGestureMap()
+		self.focus.gestureMap.addResolved(f"br({FOCUS}):leftBumperBarUp", int, "generic")
+		self.focus.gestureMap.addResolved(
+			f"br({FOCUS}.{self.FOCUS_MODEL}):leftBumperBarUp",
+			str,
+			"modelSpecific",
+		)
+
+		gesture = self.press(FOCUS, gestureId="leftBumperBarUp", model=self.FOCUS_MODEL)
+		self.assertEqual(
+			[(str, "modelSpecific"), (int, "generic")],
+			self.scriptsFor(gesture),
+		)
+
+	def test_rebasingAModelRoutingKeyKeepsThePhysicalCellNumber(self):
+		"""The freeze that protects the generic identifier has to protect the model one too."""
+		gesture = self.press(FOCUS, [5], model=self.FOCUS_MODEL)
+		self.assertEqual(8 * 80 + 5, gesture.cellIndexes[0])
+		self.assertIn(f"br({FOCUS}.{self.FOCUS_MODEL}):routing6", gesture.identifiers)
 
 
 class TestScriptDelegation(GestureTestCase):

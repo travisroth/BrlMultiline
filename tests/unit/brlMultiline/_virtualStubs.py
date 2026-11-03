@@ -88,8 +88,15 @@ class FakeDevice:
 	driver handling its own error keeps its display.
 	"""
 
-	def __init__(self, onReadError=None):
+	def __init__(self, onReadError=None, hasWriteEvent: bool = False):
+		"""
+		:param onReadError: the driver's own read error hook, if it has one.
+		:param hasWriteEvent: whether to carry `_writeEvt`, as an `IoBase` does on an NVDA
+			whose `close` clears its handle fields. `_needsRetiring` reads exactly this.
+		"""
 		self._onReadError = onReadError
+		if hasWriteEvent:
+			self._writeEvt = object()
 
 	def readFails(self, error: int = 1167) -> None:
 		""":raises OSError: when nothing handled the error, as NVDA's I/O thread would see."""
@@ -318,12 +325,11 @@ class Getter:
 class StubBrailleDisplayGesture(BrailleDisplayGesture):
 	"""A braille display gesture, with the identifier behaviour that matters here."""
 
-	model = None
-
-	def __init__(self, source: str, gestureId: str = "routing", cellIndexes=None):
+	def __init__(self, source: str, gestureId: str = "routing", cellIndexes=None, model=None):
 		self.source = source
 		self.id = gestureId
 		self.cellIndexes = list(cellIndexes) if cellIndexes else None
+		self.model = model
 
 	def _computeCellIndexesStr(self):
 		if "+" not in self.id and self.cellIndexes:
@@ -331,10 +337,22 @@ class StubBrailleDisplayGesture(BrailleDisplayGesture):
 		return None
 
 	def _computeIdentifiers(self):
+		"""`BrailleDisplayGesture._get_identifiers`, transcribed with its model branch.
+
+		A member that reports a model offers its model identifier ahead of the generic one,
+		and member gesture maps are consulted in identifier order. Without the branch every
+		member looked like one that reports no model, which no real member driver does.
+		"""
 		ids = []
 		if self._cellIndexesStr:
 			ids.append(f"br({self.source}):{self.id}{self._cellIndexesStr}")
 		ids.append(f"br({self.source}):{self.id}")
+		if self.model:
+			if self._cellIndexesStr:
+				ids.insert(0, f"br({self.source}.{self.model}):{self.id}{self._cellIndexesStr}")
+				ids.insert(1, f"br({self.source}.{self.model}):{self.id}")
+			else:
+				ids.insert(0, f"br({self.source}.{self.model}):{self.id}")
 		return ids
 
 	_cellIndexesStr = Getter(_computeCellIndexesStr)

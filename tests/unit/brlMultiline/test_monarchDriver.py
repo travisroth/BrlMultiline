@@ -17,6 +17,7 @@ See `_monarchStubs` for what stands in for Windows, and for the one method that 
 without it.
 """
 
+import errno
 import unittest
 
 from ._monarchStubs import (
@@ -941,6 +942,44 @@ class TestReconnection(MonarchTestCase):
 		hidDevices.append(FakeHid())
 		stale.run()
 		self.assertEqual([], hidOpenAttempts[1:])
+
+
+class TestWritingToAClosedDevice(MonarchTestCase):
+	"""A write that arrives after the handle has been closed. See `_sendReport`.
+
+	`hwIo.hid.Hid.close` clears `_file` but leaves `_writeFile` holding the handle value it has
+	just closed, and this driver writes to `_writeFile`. So the close must be noticed here; the
+	handle value alone cannot be trusted to still mean this device.
+	"""
+
+	def test_aClosedDeviceIsRecognised(self):
+		device = FakeHid()
+		self.assertFalse(driverModule._deviceIsClosed(device))
+		device.close()
+		self.assertTrue(driverModule._deviceIsClosed(device))
+
+	def test_aDeviceCarryingNeitherMarkerIsTakenToBeOpen(self):
+		"""The check can recognise a closed device; it must not invent one."""
+		self.assertFalse(driverModule._deviceIsClosed(object()))
+
+	def test_noReportIsWrittenToAClosedDevice(self):
+		driver = self.makeDriver()
+		device = driver._dev
+		device.close()
+		with self.assertRaises(OSError) as caught:
+			driver._sendReport(device, bytes(device.caps.OutputReportByteLength))
+		self.assertEqual(errno.EBADF, caught.exception.errno)
+		self.assertEqual(0, device.writeAttempts)
+
+	def test_aFrameArrivingAfterACloseLosesTheDeviceRatherThanWritingToIt(self):
+		"""The close can come from somewhere else, such as a display handover, while a frame
+		is already on its way to NVDA's I/O thread."""
+		driver = self.makeDriver()
+		device = driver._dev
+		device.close()
+		driver.display([0x3F] * 256)
+		self.assertEqual(0, device.writeAttempts)
+		self.assertTrue(driver._reopening)
 
 
 class TestTerminating(MonarchTestCase):

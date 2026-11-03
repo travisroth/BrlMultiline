@@ -181,6 +181,12 @@ class FakeHid:
 		self.writeAttempts = 0
 		"""Every write tried, including the ones that failed or hung."""
 		self.closed = 0
+		self._file = object()
+		self._isClosed = False
+		"""The two markers `hwIo.hid.Hid.close` leaves behind, which `_deviceIsClosed` reads.
+
+		Carried so that a closed fake device looks closed to the driver, as a real one does.
+		"""
 
 	def write(self, data: bytes) -> None:
 		self.writeAttempts += 1
@@ -194,6 +200,10 @@ class FakeHid:
 
 	def close(self) -> None:
 		self.closed += 1
+		# As `hwIo.hid.Hid.close` does: `_file` cleared, `_isClosed` set, `_writeFile` left
+		# holding the handle it just closed.
+		self._file = None
+		self._isClosed = True
 
 	def readFails(self, error: int = 1167) -> None:
 		""":raises OSError: when nothing handled the error, as NVDA's I/O thread would see."""
@@ -609,9 +619,10 @@ def makeDriverClass(driverModule):
 	decision that method reaches, `_isPinCap`, is a pure function of one capability and is
 	tested directly rather than through this.
 
-	`_sendReport` is the other. It hands a Windows handle to `hidWrite.writeWithin`, which is
+	`_writeReport` is the other. It hands a Windows handle to `hidWrite.writeWithin`, which is
 	tested on a real handle in `test_hidWrite`; here the report goes to the fake device, whose
-	`writeHangs` raises what `writeWithin` raises when a device never takes a write.
+	`writeHangs` raises what `writeWithin` raises when a device never takes a write. Only that
+	half is replaced, so `_sendReport`'s own closed check is still the driver's.
 
 	Nothing else is overridden. The point of these tests is the driver's own code, so
 	anything replaced here is a thing they no longer cover.
@@ -626,7 +637,7 @@ def makeDriverClass(driverModule):
 			# driver as "not a Monarch", not as a capability object that happens to be False.
 			return getattr(device, "pinCap", None) or None
 
-		def _sendReport(self, device, data):
+		def _writeReport(self, device, data):
 			device.write(data)
 
 	return TestableMonarchDriver

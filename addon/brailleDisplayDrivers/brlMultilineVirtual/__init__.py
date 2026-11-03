@@ -853,14 +853,29 @@ def _shapeOf(
 
 
 _retiredDrivers: list[braille.display.driver.BrailleDisplayDriver] = []
-"""Every member this driver has closed, kept alive for the rest of the session.
+"""Every member this driver has closed on an NVDA that would double close its handle.
 
 A deliberate, bounded leak around an NVDA defect: `hwIo.base.IoBase.__del__` closes a handle
 `close` already closed, which Windows may have reused. Holding a reference keeps the finaliser
 from running. See "The `hwIo` finaliser bug" in docs/design/virtual-display-plan.md.
 
-Remove this once `hwIo` clears its handle fields on close. See the top of `handover`.
+Empty on an NVDA that has the fix, which is what `_needsRetiring` tests for.
 """
+
+
+def _needsRetiring(driver: braille.display.driver.BrailleDisplayDriver) -> bool:
+	"""Whether closing this member's device twice would still close a recycled handle.
+
+	Asked of the device rather than of NVDA's version, because the answer is a property of the
+	`hwIo` that built it. NVDA's fix gives every `IoBase` a write completion event and makes
+	`close` clear its handle fields; a device without that event predates it. A device this
+	cannot read is left alone: with no `hwIo` handle there is no handle to close twice.
+
+	:param driver: the driver that has just been terminated.
+	:return: whether it must be kept alive.
+	"""
+	device = getattr(driver, "_dev", None)
+	return device is not None and not hasattr(device, "_writeEvt")
 
 
 def _retireDriver(driver: braille.display.driver.BrailleDisplayDriver) -> None:
@@ -868,7 +883,9 @@ def _retireDriver(driver: braille.display.driver.BrailleDisplayDriver) -> None:
 
 	:param driver: the driver that has just been terminated.
 	"""
-	if driver is not None and driver not in _retiredDrivers:
+	if driver is None or not _needsRetiring(driver):
+		return
+	if driver not in _retiredDrivers:
 		_retiredDrivers.append(driver)
 
 
