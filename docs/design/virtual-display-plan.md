@@ -616,6 +616,18 @@ virtual display releasing a member -- while a frame is already on its way to the
 so the window is real rather than theoretical. The raise goes down `_writePins`' existing
 lost-device path, because a closed device is a lost device.
 
+A check alone was not enough, and review caught the rest. `_sendReport` finds the device open
+and then hands its write handle to Windows, so a close landing between those two steps still
+submits a closed handle; moving or repeating the check only moves the gap. The driver already
+had the right protocol for this and was not applying it to termination: `_writeLock` promises
+that the handle is not swapped mid-report, and `_reopenDevice` swaps under it, but `terminate`
+closed the handle under no lock at all. `terminate` now detaches the device through
+`_detachDevice`, which takes `_lifecycleLock` and then `_writeLock` -- the declared order --
+swaps the handle out, and closes it outside the lock, leaving the base class nothing to blank.
+The wait is bounded by `DETACH_TIMEOUT`, a little over what `hidWrite` allows a write and its
+cancellation, after which shutdown goes ahead and logs: a braille driver that can hang NVDA's
+shutdown is the failure this driver was written to avoid.
+
 ### Three other things review found
 
 - **The composite now reports `isThreadSafe = False`.** Reporting True had
