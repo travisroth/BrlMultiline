@@ -222,6 +222,11 @@ class ObjectMonitor:
 			# on the display stays there rather than being replaced with nothing.
 			log.debugWarning(f"Could not generate regions for {self.name!r}", exc_info=True)
 			return
+		# Reading puts back the words a shape stood over, under a segment still showing the
+		# shape. See `BrailleBufferSegment.compressRegions`.
+		compress = getattr(segment, "compressRegions", None)
+		if compress is not None:
+			compress(self.regions)
 		cells = [cell for region in self.regions for cell in region.brailleCells]
 		self.counts[0] += 1
 		if cells != self._lastCells:
