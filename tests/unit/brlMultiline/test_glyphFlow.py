@@ -1104,6 +1104,105 @@ class TestARegionReadAgainInAnOrdinarySegment(GlyphTestCase):
 		self.assertEqual(self.segment.cellGlyphs(), {})
 
 
+class TestAPinnedRunReadAgain(GlyphTestCase):
+	"""A pinned web page is read as a run of objects, and the pin re-reads it on every tick.
+
+	`ObjectMonitor._refreshFlow` calls `FlowController.rereadContent` several times a second.
+	A run of objects answers that, since an object is its own bookmark, so every block on the
+	band is fetched again and `_rereadBlocks` replaces it — region and all. Only the blocks
+	that came back saying something different are laid out again; the rest keep the rendering
+	they already have, which is the one holding the shortened cells.
+
+	So the band goes on showing a shape's cell while the region behind it is a new one that
+	has never been compressed and carries no marks. `keepCompressed` cannot put them back,
+	because it has nothing to put back: it returns early on a region with no marks at all.
+	The reader is then left with the cell the shape stood on and no shape on it — dots 1236
+	where a visited link was.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline.container import DisplayContainer
+
+		from .test_flowSegment import bandView
+
+		self.given({"lnk": glyphs.LINK})
+		handler = braille().handler
+		self.container = DisplayContainer(handler, bandView(8, 32))
+		handler.mainBuffer = handler.buffer = self.container
+		self.segment = self.container.segmentForKey("flow")
+
+	def pinned(self, names=("Watchlist", "Options", "History")):
+		""":return: the controller a pin on a run of links reads it through.
+
+		Built and entered before it is told which display it is on, which is the order
+		`ObjectMonitor` does it in, and then attached to the band as the pin attaches it.
+
+		:param names: what each link is called.
+		"""
+		from brlMultiline import flowObjects
+		from brlMultiline.flowControl import FlowController
+		from brlMultiline.flowRender import FlowRenderer
+
+		from ._stubs import fakeRun
+
+		items = fakeRun(names, role="lnk")
+		adapter = flowObjects.SIBLING_RUN
+		source = flowObjects.ObjectFlowSource(
+			items[0],
+			adapter,
+			flowObjects.regionFactory(live=False, adapter=adapter),
+			generation=1,
+		)
+		control = FlowController(
+			source,
+			FlowRenderer(braille().handler, numCols=32, fillRows=True),
+			numRows=8,
+			live=False,
+			movesCursor=False,
+		)
+		control.enterAtCursor()
+		control.drawGlyphsOn(self.segment.glyphTarget())
+		self.segment.attach(control)
+		return control
+
+	def rows(self):
+		""":return: the band's rows as text, one string each, trailing blanks cut."""
+		cells = self.segment.windowBrailleCells
+		return [
+			"".join(chr(cell) if cell else " " for cell in cells[index * 32 : (index + 1) * 32]).rstrip()
+			for index in range(8)
+		]
+
+	def test_aRunOfLinksIsDrawnWithShapes(self):
+		"""The starting point, so that a failure below is about the re-read and not the setup."""
+		self.pinned()
+		self.container.windowBrailleCells
+		self.assertEqual(self.rows()[:3], ["Watchlist l", "Options l", "History l"])
+		self.assertEqual(sorted(self.display.given), [10, 40, 72])
+
+	def test_aTickThatChangedNothingKeepsTheShapesOnTheirCells(self):
+		"""The failing case on hardware: a pinned page nobody is touching, re-read on a timer."""
+		control = self.pinned()
+		self.container.windowBrailleCells
+		before = dict(self.display.given)
+		self.assertTrue(control.rereadContent())
+		self.container.windowBrailleCells
+		self.assertEqual(self.rows()[0], "Watchlist l")
+		self.assertEqual(self.display.given, before)
+
+	def test_theRegionBehindAnUnchangedRowStillCarriesItsMarks(self):
+		"""The same thing one step in, so the cause is named rather than inferred: the band's
+		cells are the compressed ones, so the region behind them has to agree."""
+		control = self.pinned()
+		self.container.windowBrailleCells
+		blockId = control.window.blocks[1].blockId
+		control.rereadContent()
+		region = control.regionFor(blockId)
+		self.assertEqual(bytes(region.brailleCells).decode(), "Options l")
+		self.assertNotEqual(glyphFlow.marksOf(region), {})
+
+
 class TestAnOrdinarySegment(GlyphTestCase):
 	"""Not a flow feature. A feature of a display that can draw one.
 

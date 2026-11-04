@@ -49,6 +49,16 @@ A shape belongs to the driver that built it, so a different driver is a differen
 beside `STAMP`.
 """
 
+SEEN = "_brlMultilineGlyphsConsidered"
+"""Attribute holding the cells, and the driver, a region was last considered over.
+
+A receipt for the attempt rather than for the result, which `STAMP` is: it is written whether
+or not anything was drawn. `keepCompressed` reads it to tell a region that has settled — one
+already compressed, or one with no shape to draw — from one it has never looked at, such as the
+region a re-read has just put in a block's place. Without it a fresh region was taken for a
+settled one and kept its words under a rendering cut from compressed cells.
+"""
+
 BEFORE = "_brlMultilineBeforeGlyphs"
 """Attribute holding the region exactly as NVDA left it, so it can be given back.
 
@@ -702,9 +712,9 @@ def compressRegion(region, target: Target | None = None) -> dict:
 	rawToBraille = getattr(region, "rawToBraillePos", None)
 	brailleToRaw = getattr(region, "brailleToRawPos", None)
 	if not cells or not rawText or rawToBraille is None or brailleToRaw is None:
-		return _forget(region)
+		return _forget(region, target)
 	if target is None or not enabled():
-		return _forget(region)
+		return _forget(region, target)
 	held = getattr(region, MARKS, None)
 	if held is not None and getattr(region, STAMP, None) == tuple(cells):
 		if getattr(region, DRIVER, None) is target.driver:
@@ -712,7 +722,7 @@ def compressRegion(region, target: Target | None = None) -> dict:
 			return held
 		# Built by another display's driver. The words go back, and the shapes are fitted again for
 		# this one from the region as NVDA left it. See `DRIVER`.
-		_forget(region)
+		_forget(region, target)
 		cells = getattr(region, "brailleCells", None)
 		rawText = getattr(region, "rawText", "") or ""
 		rawToBraille = getattr(region, "rawToBraillePos", None)
@@ -722,10 +732,10 @@ def compressRegion(region, target: Target | None = None) -> dict:
 	spans = replaceableSpans(region)
 	if spans is None:
 		# Nothing says which words here are NVDA's. See `replaceableSpans`.
-		return _forget(region)
+		return _forget(region, target)
 	marks = marksIn(rawText, spans)
 	if not marks:
-		return _forget(region)
+		return _forget(region, target)
 	before = _snapshot(region)
 	drawn: dict = {}
 	for start, end, glyph in reversed(marks):
@@ -743,7 +753,7 @@ def compressRegion(region, target: Target | None = None) -> dict:
 		drawn[at] = fitted
 		_moveMarks(region, at, fitted)
 	if not drawn:
-		return _forget(region)
+		return _forget(region, target)
 	region.brailleCells = cells
 	region.rawToBraillePos = rawToBraille
 	region.brailleToRawPos = brailleToRaw
@@ -751,6 +761,7 @@ def compressRegion(region, target: Target | None = None) -> dict:
 	setattr(region, STAMP, tuple(cells))
 	setattr(region, DRIVER, target.driver)
 	setattr(region, BEFORE, before)
+	_considered(region, target)
 	return drawn
 
 
@@ -787,16 +798,18 @@ def _moveMarks(region, at: int, fitted) -> None:
 			log.debugWarning(f"BrlMultiline: could not move {name} after a glyph", exc_info=True)
 
 
-def _forget(region) -> dict:
+def _forget(region, target: Target | None = None) -> dict:
 	"""Give a region its words back, and leave no marks on it.
 
 	Marks cleared and cells put back, since the region may not be read again in between. See
 	`BEFORE`.
 
 	:param region: the region.
+	:param target: the display it was being considered for, recorded in `SEEN`.
 	:return: an empty table, for the caller to return in turn.
 	"""
 	if getattr(region, MARKS, None) is None:
+		_considered(region, target)
 		return {}
 	try:
 		_restore(region)
@@ -806,7 +819,33 @@ def _forget(region) -> dict:
 		setattr(region, BEFORE, None)
 	except Exception:
 		log.debugWarning("BrlMultiline: could not clear a region's glyphs", exc_info=True)
+	_considered(region, target)
 	return {}
+
+
+def _considered(region, target: Target | None) -> None:
+	"""Note the cells, and the display, a region has just been considered over. See `SEEN`.
+
+	After the cells have settled, so what is recorded is what a later pass will compare
+	against: the compressed cells where something was drawn, the words where nothing was.
+
+	:param region: the region.
+	:param target: the display it was considered for, or None.
+	"""
+	try:
+		setattr(region, SEEN, _attempt(region, target))
+	except Exception:
+		log.debugWarning("BrlMultiline: a region would not say it had been considered", exc_info=True)
+
+
+def _attempt(region, target: Target | None) -> tuple:
+	""":return: what `SEEN` holds for a region as it stands now, for writing or comparing.
+
+	:param region: the region.
+	:param target: the display being considered, or None.
+	"""
+	driver = None if target is None else id(target.driver)
+	return (tuple(getattr(region, "brailleCells", None) or ()), driver)
 
 
 def _restore(region) -> None:
@@ -831,18 +870,23 @@ def _restore(region) -> None:
 
 
 def keepCompressed(region, target: Target | None = None) -> None:
-	"""Put the shapes back on a region that has been read again since it was laid out.
+	"""Draw the shapes on a region a rendering already stands on, if that has not been done.
 
 	NVDA's `_handlePendingUpdate` re-reads the region, rebuilding uncompressed maps under a kept
-	rendering cut from compressed cells, so routing would be out of step. Compressing again is
-	deterministic, and costs one attribute read where there was never a shape.
+	rendering cut from compressed cells, so routing would be out of step. A re-read of a band
+	replaces a block's region outright, and an unchanged block keeps its rendering, so the new
+	region arrives having never been compressed at all. Both are the same thing from here: the
+	region does not match what the rendering was cut from, so it is compressed now.
+
+	Compressing is deterministic, and a region already considered over these cells, for this
+	display, costs one attribute read. See `SEEN`.
 
 	:param region: the region about to be used, which may be anything or nothing.
 	:param target: the display it is going to, as `compressRegion` means it.
 	"""
-	if region is None or getattr(region, MARKS, None) is None:
+	if region is None:
 		return
-	if getattr(region, STAMP, None) == tuple(getattr(region, "brailleCells", None) or ()):
+	if getattr(region, SEEN, None) == _attempt(region, target):
 		return
 	compressRegion(region, target)
 
