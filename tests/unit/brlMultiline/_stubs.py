@@ -1616,7 +1616,8 @@ def fakeVirtualDisplay(*bands, configured=None, drivers=None):
 	member carrying its driver name, its band and whether it has been given up on — and no more
 	than that, because nothing above the driver has any business reading more. A test wanting a
 	member that has stopped responding sets `display.slots[n].failed`, as `DeviceSlot.fail` does
-	when a write raises.
+	when a write raises, and one whose driver is reconnecting its own device clears
+	`display.slots[n].isAvailable`.
 
 	:param bands: each member's (driverName, rowStart, numRows, numCols), top first.
 	:param configured: the members it was opened for, or None for exactly the bands given. A
@@ -1638,6 +1639,7 @@ def fakeVirtualDisplay(*bands, configured=None, drivers=None):
 				driverName=driverName,
 				band=types.SimpleNamespace(rowStart=rowStart, numRows=numRows, numCols=numCols),
 				failed=False,
+				isAvailable=True,
 				driver=drivers.get(driverName),
 			)
 			for driverName, rowStart, numRows, numCols in bands

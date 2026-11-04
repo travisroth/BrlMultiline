@@ -836,6 +836,40 @@ class TestReconnection(MonarchTestCase):
 		self.driver._dev._onReadError(1167)
 		self.assertEqual(5000, callLaterQueue.pending[0].milliseconds)
 
+	def test_theDriverSaysWhenAWriteWouldNotReachTheDevice(self):
+		"""A virtual display holding this driver has no other way to tell: the member is never
+		given up on, and `_writePins` drops a frame rather than raising."""
+		self.assertTrue(self.driver.isAvailable)
+		self.driver._dev._onReadError(1167)
+		self.assertFalse(self.driver.isAvailable)
+
+	def test_aFailedWriteAlsoSaysTheDeviceCannotBeReached(self):
+		self.driver._dev.writeFails = True
+		self.driver.display([0] * 256)
+		self.assertFalse(self.driver.isAvailable)
+
+	def test_theDeviceCanBeReachedAgainOnceItIsBack(self):
+		self.driver._dev._onReadError(1167)
+		hidDevices.append(FakeHid())
+		callLaterQueue.fire()
+		bgThread.flush()
+		self.assertTrue(self.driver.isAvailable)
+
+	def test_aDeviceReopenedButTakingNoWritesStillCannotBeReached(self):
+		"""Opening is not proof the device works, and the panel is dark either way."""
+		self.driver._dev.writeHangs = True
+		self.driver.display([0] * 256)
+		replacement = FakeHid()
+		replacement.writeHangs = True
+		hidDevices.append(replacement)
+		callLaterQueue.fire()
+		bgThread.flush()
+		self.assertFalse(self.driver.isAvailable)
+
+	def test_aDeviceGivenUpOnCannotBeReached(self):
+		self.driver._gaveUp = True
+		self.assertFalse(self.driver.isAvailable)
+
 	def test_aReadErrorIsReportedAsHandledOnlyWhenSomethingIsRetrying(self):
 		"""Inside a virtual display, False is taken at its word: the member is dropped and
 		the in place reconnection this driver promises never gets its chance."""

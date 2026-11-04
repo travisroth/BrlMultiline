@@ -12,6 +12,7 @@ The driver is not imported, which would pull in `hwIo` and the driver base and c
 the view layer's import; its published live object is read instead.
 """
 
+import enum
 from typing import NamedTuple
 
 import braille
@@ -201,17 +202,34 @@ def membersChangedAction():
 		return None
 
 
-def memberStates(display=None) -> dict[str, bool] | None:
-	"""Say which of the composite's members it is actually driving.
+class MemberState(enum.Enum):
+	"""What the composite can say about one of the displays behind it."""
 
-	Only the running composite can answer. Driven is narrower than connected: a member is
-	given up on when a write or read to it fails, so a display holding still content may be off
-	for a while before that is noticed.
+	DRIVING = "driving"
+	"""Written to, and the writes are reaching it."""
+
+	RECONNECTING = "reconnecting"
+	"""Still a member, keeping its rows, but nothing written now arrives.
+
+	A driver that recovers its own device, such as `brlMultilineMonarch`, answers the read
+	error itself rather than letting the composite give the member up, so the layout is left
+	alone over a dropped link. Its rows are therefore dark until it is back.
+	"""
+
+	LOST = "lost"
+	"""Given up on. Its rows have gone and the composite is looking for it again."""
+
+
+def memberStates(display=None) -> dict[str, MemberState] | None:
+	"""Say what the composite can report about each of its members.
+
+	Only the running composite can answer. All three states are narrower than connected: a
+	member is given up on when a write or read to it fails, so a display holding still content
+	may be off for a while before that is noticed.
 
 	:param display: the display to read, or None for the one NVDA is driving.
-	:return: True for a member being driven and False for one given up on, by driver name; or
-		None when the composite is not the display in use, in which case nothing here can say
-		anything about any display at all.
+	:return: the state of each member by driver name; or None when the composite is not the
+		display in use, in which case nothing here can say anything about any display at all.
 	"""
 	if display is None:
 		handler = braille.handler
@@ -219,10 +237,35 @@ def memberStates(display=None) -> dict[str, bool] | None:
 	if not isVirtualDisplay(display):
 		return None
 	try:
-		return {slot.driverName: not slot.failed for slot in display.slots}
+		return {slot.driverName: _stateOf(slot) for slot in display.slots}
 	except Exception:
 		log.error("BrlMultiline: could not read the virtual display's members", exc_info=True)
 		return None
+
+
+def _stateOf(slot) -> MemberState:
+	""":return: what to report about one member.
+
+	:param slot: the composite's `DeviceSlot` for it.
+	"""
+	if slot.failed:
+		return MemberState.LOST
+	return MemberState.DRIVING if slot.isAvailable else MemberState.RECONNECTING
+
+
+def isMemberWritable(driverName: str, display=None) -> bool:
+	"""Say whether something written to a member would reach it now.
+
+	:param driverName: the member to ask about.
+	:param display: the display to read, or None for the one NVDA is driving.
+	:return: whether that member is being driven. True when nothing can say, since an ordinary
+		display is writable and a caller should not refuse a command over a question it could
+		not ask.
+	"""
+	states = memberStates(display)
+	if states is None:
+		return True
+	return states.get(driverName, MemberState.DRIVING) is MemberState.DRIVING
 
 
 def configuredMembers(display=None) -> list[str] | None:

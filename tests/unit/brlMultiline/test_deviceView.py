@@ -31,7 +31,9 @@ import braille  # noqa: E402
 
 from brlMultiline.devices import (  # noqa: E402
 	DeviceInfo,
+	MemberState,
 	deviceMap,
+	isMemberWritable,
 	isVirtualDisplay,
 	locateSegment,
 	memberStates,
@@ -373,7 +375,10 @@ class TestDeviceMap(unittest.TestCase):
 		braille.handler.display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
 		self.assertEqual(
 			memberStates(),
-			{"hidBrailleStandard": True, "freedomScientific": True},
+			{
+				"hidBrailleStandard": MemberState.DRIVING,
+				"freedomScientific": MemberState.DRIVING,
+			},
 		)
 
 	def test_aMemberGivenUpOnIsReportedAsSuch(self):
@@ -381,12 +386,47 @@ class TestDeviceMap(unittest.TestCase):
 		display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
 		display.slots[0].failed = True
 		braille.handler.display = display
-		self.assertEqual(memberStates()["hidBrailleStandard"], False)
+		self.assertEqual(memberStates()["hidBrailleStandard"], MemberState.LOST)
+
+	def test_aMemberReconnectingItsOwnDeviceIsReportedApartFromOneGivenUpOn(self):
+		"""A driver that recovers in place keeps its rows, so "in use" would be a claim too far.
+
+		The composite never gives such a member up, and its dropped writes do not raise, so
+		this is the only state that says the rows are dark.
+		"""
+		display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
+		display.slots[0].isAvailable = False
+		braille.handler.display = display
+		self.assertEqual(memberStates()["hidBrailleStandard"], MemberState.RECONNECTING)
+		self.assertEqual(memberStates()["freedomScientific"], MemberState.DRIVING)
+
+	def test_aMemberGivenUpOnOutranksOneReconnecting(self):
+		display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
+		display.slots[0].failed = True
+		display.slots[0].isAvailable = False
+		braille.handler.display = display
+		self.assertEqual(memberStates()["hidBrailleStandard"], MemberState.LOST)
 
 	def test_aMemberThatWasNeverOpenedIsSimplyAbsent(self):
 		"""The composite opens what it can and leaves out what it cannot."""
 		braille.handler.display = fakeVirtualDisplay(tuple(FOCUS._replace(rowStart=0)))
-		self.assertEqual(memberStates(), {"freedomScientific": True})
+		self.assertEqual(memberStates(), {"freedomScientific": MemberState.DRIVING})
+
+	def test_aReconnectingMemberIsNotWritable(self):
+		display = fakeVirtualDisplay(tuple(MONARCH), tuple(FOCUS))
+		display.slots[0].isAvailable = False
+		braille.handler.display = display
+		self.assertFalse(isMemberWritable("hidBrailleStandard"))
+		self.assertTrue(isMemberWritable("freedomScientific"))
+
+	def test_anOrdinaryDisplayIsTakenAsWritable(self):
+		"""Nothing can be asked, and a command must not be refused over an unanswered question."""
+		braille.handler.display = types.SimpleNamespace(name="freedomScientific")
+		self.assertTrue(isMemberWritable("freedomScientific"))
+
+	def test_aMemberNoCompositeHasEverHeardOfIsTakenAsWritable(self):
+		braille.handler.display = fakeVirtualDisplay(tuple(MONARCH))
+		self.assertTrue(isMemberWritable("freedomScientific"))
 
 	def test_somethingClaimingToBeTheCompositeButNotShapedLikeItIsReported(self):
 		braille.handler.display = types.SimpleNamespace(name="brlMultilineVirtual", slots=[object()])

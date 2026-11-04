@@ -1319,6 +1319,20 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 	# --- Staying connected -------------------------------------------------------------
 
+	@property
+	def isAvailable(self) -> bool:
+		""":return: whether a write would reach the device now.
+
+		False while the device is being reopened, and from then until a write gets through. A
+		write made meanwhile is dropped by `_writePins` rather than raising, so this is the only
+		way to tell a frame that landed from one that went nowhere. A virtual display holding this
+		driver reports it; see docs/design/monarch-driver-plan.md, Reconnection.
+
+		Read without the locks that guard these flags. Each is a bool written in one step, and a
+		status read that is one moment out of date is not worth making a caller wait on the wire.
+		"""
+		return not (self._writesSuspended or self._reopening or self._gaveUp)
+
 	def _watchForDisconnect(self) -> None:
 		"""Learn about a dropped link from the read side, rather than waiting for a write.
 

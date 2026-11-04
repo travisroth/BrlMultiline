@@ -134,6 +134,44 @@ class TestFailure(unittest.TestCase):
 		self.assertEqual(self.driver.written, [])
 
 
+class TestReportingWhetherAMemberCanBeReached(unittest.TestCase):
+	"""Three states, not two, because a driver may recover its own device.
+
+	Such a driver answers the read error itself, so the member is never given up on and keeps
+	its rows, and its dropped writes do not raise. Without asking the driver, a member
+	reconnecting is indistinguishable from one that is working.
+	"""
+
+	def setUp(self):
+		resetStubs()
+		self.driver = FakeDriver(isThreadSafe=False)
+		self.slot = DeviceSlot(SPEC, self.driver, BAND)
+
+	def test_aDriverWithNothingToSayIsTakenAsAvailable(self):
+		"""Which is every driver that does not reconnect in place."""
+		self.assertFalse(hasattr(self.driver, "isAvailable"))
+		self.assertTrue(self.slot.isAvailable)
+
+	def test_aDriverThatSaysItCannotBeReachedIsBelieved(self):
+		self.driver.isAvailable = False
+		self.assertTrue(self.slot.isAvailable is False)
+		self.assertFalse(self.slot.failed)
+
+	def test_aMemberGivenUpOnIsUnavailableWhateverItsDriverSays(self):
+		self.driver.isAvailable = True
+		self.slot.fail()
+		self.assertFalse(self.slot.isAvailable)
+
+	def test_sayingItCannotBeReachedDoesNotStopWritesBeingOffered(self):
+		"""The driver decides what to do with them; the slot is only reporting.
+
+		Dropping them here would lose the frame such a driver repaints from when it is back.
+		"""
+		self.driver.isAvailable = False
+		self.assertTrue(self.slot.write([1, 2, 3, 4]))
+		self.assertEqual(self.driver.written, [[1, 2, 3, 4]])
+
+
 class TestNoticingADisconnection(unittest.TestCase):
 	"""The read side knows first, and a member showing something static is never written to.
 

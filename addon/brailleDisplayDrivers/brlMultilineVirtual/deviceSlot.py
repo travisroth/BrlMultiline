@@ -73,6 +73,22 @@ class DeviceSlot:
 	def driverName(self) -> str:
 		return self.spec.driverName
 
+	@property
+	def isAvailable(self) -> bool:
+		""":return: whether a write to this member would reach its hardware now.
+
+		False while a driver that recovers its own device is doing so. Such a driver answers a
+		read error itself, so the member is never given up on and keeps its rows, and its
+		dropped writes do not raise; this is what tells the composite the difference. True for
+		a driver with nothing to say, which is every driver that does not reconnect in place.
+
+		Narrower than `failed`: a member given up on is unavailable too, so the three states a
+		reader needs are this and `failed` together.
+		"""
+		if self.failed:
+			return False
+		return bool(getattr(self.driver, "isAvailable", True))
+
 	def watchForDisconnect(self) -> None:
 		"""Ask this member's device to say when it has gone, rather than waiting to find out.
 

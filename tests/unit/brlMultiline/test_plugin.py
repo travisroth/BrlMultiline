@@ -2909,6 +2909,41 @@ class TestTwoDisplays(FocusTrackingDisplayTestCase):
 		self.assertEqual(self.focusDriver, "hidBrailleStandard")
 
 
+class TestMovingTheFocusToADisplayThatIsNotAnswering(FocusTrackingDisplayTestCase):
+	"""A member whose driver reconnects its own device keeps its rows, and they are dark.
+
+	The move is made, because that is where the focus will be when the display is back, but
+	announcing it as though the braille had arrived there is the one thing it must not do.
+	"""
+
+	def moveToTheMonarch(self):
+		targets = self.plugin.focusMoves.targets()
+		monarch = next(target for target in targets if target.driverName == "hidBrailleStandard")
+		self.plugin.focusMoves.moveWithPins(monarch, position=0)
+
+	def test_aDisplayThatIsRespondingIsAnnouncedPlainly(self):
+		self.moveToTheMonarch()
+		self.assertTrue(
+			any(message.startswith("Focus on") for message in spokenMessages),
+			spokenMessages,
+		)
+		self.assertFalse(any("not responding" in message for message in spokenMessages), spokenMessages)
+
+	def test_aDisplayThatIsNotAnsweringIsSaidToBeSo(self):
+		self.handler.display.slots[0].isAvailable = False
+		self.moveToTheMonarch()
+		self.assertTrue(
+			any("not responding" in message for message in spokenMessages),
+			spokenMessages,
+		)
+
+	def test_theFocusStillMoves(self):
+		"""It keeps its rows, so refusing would leave the focus where the reader did not ask."""
+		self.handler.display.slots[0].isAvailable = False
+		self.moveToTheMonarch()
+		self.assertEqual(self.focusDriver, "hidBrailleStandard")
+
+
 class TestMovingTheFocusOverAPin(FocusTrackingDisplayTestCase):
 	"""A pin and the focus cannot share a segment, so moving the focus can evict one.
 

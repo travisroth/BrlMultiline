@@ -1171,8 +1171,8 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 	memberRows: dict[str, int] | None = None
 	"""The rows each chosen display physically has, as edited here. See `_rows`."""
 
-	_states: dict[str, bool] | None = None
-	"""Which chosen displays the composite is driving, or None if it is not the display in use.
+	_states: dict[str, devices.MemberState] | None = None
+	"""What the composite reports about each chosen display, or None if it is not the one in use.
 
 	Read once, when the category opens. With no composite to ask, the list gives no states.
 	"""
@@ -1246,7 +1246,9 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 					"Each display is detected afresh when it is opened, so no port is chosen here. "
 					"One display per driver: two displays of the same make cannot be told apart. "
 					"A display is shown as in use while the combined display is the one in use; "
-					"one that stops responding is noticed when something is next written to it.",
+					"one that stops responding is noticed when something is next written to it. "
+					"A display that reconnects by itself keeps its rows while it does, and is "
+					"shown as reconnecting.",
 				),
 			),
 		)
@@ -1285,9 +1287,14 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 			# not open, when braille started.
 			# Translators: a display in the combined display's list that is not being used.
 			return _("{display}: not connected").format(display=name)
-		if not self._states[driverName]:
+		state = self._states[driverName]
+		if state is devices.MemberState.LOST:
 			# Translators: a display in the combined display's list that has stopped working.
 			return _("{display}: not responding").format(display=name)
+		if state is devices.MemberState.RECONNECTING:
+			# Translators: a display in the combined display's list that has stopped responding
+			# and is being reconnected, so it keeps its place in the display meanwhile.
+			return _("{display}: not responding, reconnecting").format(display=name)
 		# Translators: a display in the combined display's list that is being used now.
 		return _("{display}: in use").format(display=name)
 

@@ -347,7 +347,7 @@ run detection again, open a new `hwIo.hid.Hid`, re-read the caps, re-hook the re
 repaint the last frame. NVDA is never told the display went away, so no display switch,
 no fallback to no braille, and no restart.
 
-Three things about that are not obvious, and each was a bug first.
+Four things about that are not obvious, and each was a bug first.
 
 **A reconnect is a new input session.** Everything the input path remembers describes the
 handle that went away: which keys were down, whether releases were being ignored, where the
@@ -372,6 +372,22 @@ install a handle afterwards that nothing will ever reach. `hwIo.hid.Hid` opens e
 that handle holds the Monarch away from *every* driver until NVDA restarts. The candidate is
 therefore opened into a local and installed only after the flag is re-checked under a lock,
 and `terminate` closes anything that beat it to the install.
+
+**Recovering in place makes the member look healthy, so the driver has to say otherwise.**
+Answering the read error with True is what keeps a virtual display from giving the member up,
+and it is also what stops anything above noticing the gap. The composite's one health bit is
+`DeviceSlot.failed`, which this driver deliberately prevents; and `_writePins` returns at its
+first line while writes are suspended, so a frame that went nowhere is indistinguishable from
+one that landed. The result, from a reader's session: the settings panel called a Monarch that
+had dropped its Bluetooth "in use", and moving the focus to it reported success onto rows
+nothing could reach.
+
+So the driver publishes `isAvailable`, false while it is reopening and from then until a write
+gets through, and `DeviceSlot.isAvailable` passes it on — defaulting to true, since a driver
+that does not reconnect in place has nothing to say and is covered by `failed` as before.
+`devices.memberStates` then reports three states rather than two. See
+docs/design/virtual-display-plan.md, Three states, not two, for what the composite does with
+them and why the member keeps its rows throughout.
 
 ### Three locks, in one order
 

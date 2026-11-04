@@ -22,7 +22,7 @@ import wx
 from logHandler import log
 
 from . import bmConfig
-from .devices import deviceMap
+from .devices import deviceMap, isMemberWritable
 from .settingsPanel import displayDescriptions
 from .objectMonitor import ObjectMonitor
 from .views import deviceSegmentKeys, driverNameForSegmentKey
@@ -347,11 +347,24 @@ class FocusDisplayMoves:
 			finally:
 				self._landPinsInFlight()
 		crowdedOut.extend(released)
-		ui.message(
+		if isMemberWritable(target.driverName):
 			# Translators: reported when the focus is moved onto one of several combined
 			# displays. Placeholders are the display's name and the segment number.
-			_("Focus on {display}, segment {number}").format(display=target.label, number=number),
-		)
+			arrived = _("Focus on {display}, segment {number}").format(
+				display=target.label,
+				number=number,
+			)
+		else:
+			# The move is made rather than refused: the display keeps its rows while it
+			# reconnects, so this is where the focus will be when it comes back.
+			# Translators: reported when the focus is moved onto one of several combined
+			# displays that is not responding, so nothing written reaches it yet. Placeholders
+			# are the display's name and the segment number.
+			arrived = _("Focus on {display}, segment {number}, not responding").format(
+				display=target.label,
+				number=number,
+			)
+		ui.message(arrived)
 		for message in self.describeCarriedPins(carried):
 			ui.message(message)
 		for name in crowdedOut:

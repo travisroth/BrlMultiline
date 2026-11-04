@@ -22,7 +22,7 @@ from brailleDisplayDrivers.brlMultilineVirtual import vdConfig  # noqa: E402
 from brailleDisplayDrivers.brlMultilineVirtual.virtualLayout import DeviceSpec  # noqa: E402
 
 from brlMultiline import bmConfig, flowIndent  # noqa: E402
-from brlMultiline.devices import DeviceInfo  # noqa: E402
+from brlMultiline.devices import DeviceInfo, MemberState  # noqa: E402
 from brlMultiline.settingsPanel import (  # noqa: E402
 	BrailleMultilineSettingsPanel,
 	FlowSettingsPanel,
@@ -363,6 +363,16 @@ class TestDisplayList(SettingsPanelTestCase):
 		"""It is the absence of a display rather than one."""
 		self.assertNotIn("noBraille", self.panel._addable())
 
+	def states(self, first=None):
+		""":return: states for the two chosen displays, the first of them as given.
+
+		:param first: the first display's state, or None for one being driven.
+		"""
+		return {
+			"hidBrailleStandard": first or MemberState.DRIVING,
+			"freedomScientific": MemberState.DRIVING,
+		}
+
 	def listed(self, states=None, chosen=("hidBrailleStandard", "freedomScientific")):
 		"""Put a list into the panel with a given set of live states, and read it back."""
 		self.panel._states = states
@@ -378,21 +388,26 @@ class TestDisplayList(SettingsPanelTestCase):
 		)
 
 	def test_aDisplayBeingDrivenSaysSo(self):
-		listed = self.listed(states={"hidBrailleStandard": True, "freedomScientific": True})
+		listed = self.listed(states=self.states())
 		self.assertEqual(listed[0], "Standard HID braille display: in use")
 
 	def test_aDisplayTheCompositeNeverOpenedSaysSo(self):
 		"""Switched off, or out of range, when braille started."""
-		listed = self.listed(states={"freedomScientific": True})
+		listed = self.listed(states={"freedomScientific": MemberState.DRIVING})
 		self.assertEqual(listed[0], "Standard HID braille display: not connected")
 
 	def test_aDisplayThatHasStoppedRespondingSaysSo(self):
-		listed = self.listed(states={"hidBrailleStandard": False, "freedomScientific": True})
+		listed = self.listed(states=self.states(MemberState.LOST))
 		self.assertEqual(listed[0], "Standard HID braille display: not responding")
+
+	def test_aDisplayReconnectingItselfIsNotCalledInUse(self):
+		"""It keeps its rows, so the one thing it must not say is that it is working."""
+		listed = self.listed(states=self.states(MemberState.RECONNECTING))
+		self.assertEqual(listed[0], "Standard HID braille display: not responding, reconnecting")
 
 	def test_theDisplaysThatMayBeAddedAreNamedPlainly(self):
 		"""They are not in the composite, so there is no state to report for them."""
-		self.listed(states={"hidBrailleStandard": True, "freedomScientific": True})
+		self.listed(states=self.states())
 		for name in self.panel.availableCtrl.items:
 			self.assertNotIn(":", name)
 

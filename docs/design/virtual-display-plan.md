@@ -1227,6 +1227,32 @@ device is often still enumerated while switched off. One attempt per tick rather
 the startup path takes — the poll *is* the retry Phase 0 asked for — and each failure doubles
 that member's wait, to a minute, so a display left off costs almost nothing.
 
+### Three states, not two
+
+Phase 4 gave a member two states, driven or given up on, and a driver that recovers its own
+device does not fit either. `brlMultilineMonarch` answers the read error itself and returns
+True, which the slot reads as "handled" and so never fails the member — deliberately, because
+failing it would replace the driver and the in-place reconnection would never happen. The
+member therefore keeps its rows, and everything above read `not slot.failed` and called it
+working. See docs/design/monarch-driver-plan.md, Reconnection, for the reader's session that
+found this.
+
+The member keeps its rows, and that is the right answer rather than a concession. Failing and
+readmitting it would reflow the whole composite twice over a link glitch of a couple of
+seconds, announce a geometry change each time, and re-home or release whatever was pinned; and
+the Monarch repaints its last frame, glyphs and overlays included, when it is back, which a
+replacement driver could not. `glyphFlow.glyphTargets` draws to such a member for the same
+reason: its band is still valid and the drawing arrives when it does.
+
+What was wrong was only the reporting, so that is what changed. `DeviceSlot.isAvailable` asks
+the driver whether a write would reach it, and `devices.memberStates` returns `MemberState`:
+`DRIVING`, `RECONNECTING`, or `LOST`. The settings panel distinguishes the middle one, and
+`devices.isMemberWritable` lets a command check before it claims to have done something —
+moving the focus there still moves it, since that is where the focus will be when the display
+returns, but says the display is not responding rather than announcing arrival. A caller that
+cannot ask, because an ordinary display is in use, is told the member is writable: a command
+must not be refused over a question it had no way to put.
+
 ### Phase 5 results: the members' own settings
 
 Selecting the composite used to hide every setting of the displays behind it, because NVDA's
