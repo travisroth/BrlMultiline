@@ -1353,6 +1353,19 @@ class TableFlowSource:
 		self.budget.startUnlessActive()
 		return self._rowAt(max(self.firstRow, self.handle.row))
 
+	def blockAtRow(self, row: int) -> FetchResult:
+		""":return: one row of the table, as the table numbers it, without the caret moving.
+
+		Clamped to the rows this source serves. See `FlowController.enterAtPlace`.
+		"""
+		self.budget.startUnlessActive()
+		last = self.handle.numRows or row
+		return self._rowAt(min(max(self.firstRow, row), max(self.firstRow, last)))
+
+	def isTable(self, key) -> bool:
+		""":return: whether a key from `TableHandle.key` names the table this source reads."""
+		return sameTable(self.handle.key, key)
+
 	def blockAfter(self, blockId: BlockId) -> FetchResult:
 		""":return: the row below one already fetched."""
 		return self._step(blockId, 1)

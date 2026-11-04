@@ -49,8 +49,9 @@ established there.
   [braille-viewer-plan.md](braille-viewer-plan.md).
 
   Each feature object takes the plugin typed as a `Protocol` that names the plugin members the
-  feature uses: `PictureHost`, `LayoutHost`, `TableHost`, `FocusHost`, `ViewerHost`, and for the
-  key layers `keyLayerContexts.ContextHost`. The plugin fits each one without declaring it. The protocol is
+  feature uses: `PictureHost`, `LayoutHost`, `TableHost`, `FocusHost`, `ViewerHost`,
+  `pinDialog.PinHost` for the pinned objects dialog's `PinManager`, and for the key layers
+  `keyLayerContexts.ContextHost`. The plugin fits each one without declaring it. The protocol is
   the feature's dependency on the plugin, written down: when a feature starts using another
   member of the plugin, add that member to its protocol. `test_hostProtocols` reads the source and
   fails when a feature uses a plugin member its protocol does not list, when a protocol lists one

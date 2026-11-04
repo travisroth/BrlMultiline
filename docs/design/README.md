@@ -82,13 +82,17 @@ Read the files in this order:
 15. [pinned-quick-nav-plan.md](pinned-quick-nav-plan.md) — the plan for browse mode's quick
    navigation keys in a pinned document, from the display it is on, without moving the focus or
    the caret.
-16. [braille-viewer-plan.md](braille-viewer-plan.md) — the plan for a viewer that shows a sighted
+16. [pin-places-plan.md](pin-places-plan.md) — the plan for pins that make their own room from the
+   pinned objects dialog, sharing a place such as the other display and dividing it again as pins
+   come and go, so a reader need not set up segments beforehand, and for setting pins aside for
+   now. Built and unit tested, not yet on hardware.
+17. [braille-viewer-plan.md](braille-viewer-plan.md) — the plan for a viewer that shows a sighted
    teacher or tester every row, segment, member and pin, since NVDA's Braille Viewer forces one
    row, and for simulated mode, the combined display with no displays configured, which lets a
-   tester run the add-on as a Monarch, a Focus 80 or both with no hardware. Built and unit tested,
-   not yet tried in NVDA. Read it before touching `pre_writeCells` or the combined display's
+   tester run the add-on as a Monarch, a Focus 80 or both with no hardware. Built, unit tested and
+   tried in NVDA. Read it before touching `pre_writeCells` or the combined display's
    members.
-17. [findings-from-code.md](findings-from-code.md) — hardware reports, review findings and earlier
+18. [findings-from-code.md](findings-from-code.md) — hardware reports, review findings and earlier
    designs that were recorded only in code comments until the comments were trimmed, grouped by
    subsystem, each with the commit that holds the original wording. Read it when a rule in the
    code seems stricter than it needs to be.

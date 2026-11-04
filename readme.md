@@ -26,6 +26,8 @@ The add-on works with:
 1. A multi-line display such as the Humanware Monarch.
 2. A large single-line display such as a Focus 80, which can be split into two 40-cell areas.
 3. Two or three displays combined, such as a Monarch with a Focus 80 below it.
+4. No braille display at all, by simulating one, for trying the add-on or testing what a script
+   shows in braille. See [The BrlMultiline viewer](#the-brlmultiline-viewer).
 
 This is development software. It patches parts of NVDA's braille handling.
 
@@ -150,6 +152,39 @@ the focus is, choose it in "Display the flow appears on" in the BrlMultiline flo
    navigator object follows the focus, so moving the focus there is usually enough; object
    navigation works too.
 3. Press your pin key.
+
+**Or pin with one key, from a dialog.** A key for every segment's pin and release adds up
+quickly, and a display like the Monarch does not have that many to spare. Instead, assign one
+key to "Monitoring: Opens a dialog to pin the navigator object to a segment, or release a
+pin". Move to what you want to keep in view and press it. The dialog names the object it will
+pin, and offers the segments it can go on, such as "Segment 2 (segment 0 of the second
+display)". Choose one, or type its number, and press Enter: the dialog closes and the object
+is pinned. The same dialog lists what is pinned and where. Select one and press Release to
+stop showing it.
+
+**You don't have to set up segments first.** After your own segments, the dialog offers
+places, which make room for a pin when you pin it: "Above the focus" and "Below the focus"
+take rows from the segment that follows the focus ("Before" and "After" on a one-row display),
+and with displays combined, "All of the second display" takes a whole display the focus isn't
+on. A segment of yours that is a whole display is offered as that display's place instead, so
+it can be shared later. Leave Size at Fill and the pin shares the place: the first takes all of the second display,
+a second pinned there gives each half, and releasing one gives its room back. Or choose a size,
+such as 3 rows, and the pins left at Fill share what's left. On a one-row display a size is in
+cells, and every pin keeps at least a quarter of the row. When a place already holds pins,
+"Before or after the pins there" says where the new one goes.
+To change a pin later, select it in the list: New size and Resize give it another size, and
+Move up and Move down change its order, past the focus too. The flow keeps to the rows the
+pins leave it, and stops while they leave it fewer than two; you're told when a pin or a new
+size stops it. With displays combined, moving the focus to the other display takes the places
+with it: the pins beside the focus go with the focus, and the pins on the display it moves to
+trade places with it, sharing their new display equally.
+
+**Set pins aside for now** when you want the whole display for a moment, for the focus, the
+flow or an application's layout. Check "Set pins aside for now" in the dialog, or assign a key
+to "Monitoring: Sets the pinned objects aside for now, or shows them again". Each display
+becomes one segment, and nothing pinned is lost: shown again, every pin is back where it was,
+at the size it was. A pin whose object has gone in the meantime, such as a closed window, is
+released and you're told so. Pinning something new shows them again first.
 
 What you pinned stays on that display while you go back to work on the other one. To pan it,
 use that display's own panning keys, or assign keys to "Navigation: Scrolls segment 0 of the
@@ -665,6 +700,63 @@ Details:
   lost.
 - The list of combined displays is not part of a configuration profile. It describes your
   hardware, so it is stored once and applies in every profile.
+
+## The BrlMultiline viewer
+
+NVDA's own Braille Viewer, in the Tools menu, shows a sighted person what is on the braille
+display, but only one row of it, and while it is open NVDA makes a multi-line display show one
+row too. The BrlMultiline viewer is for a teacher, a sighted colleague, or a tester working
+beside a braille reader. It shows everything the add-on puts on the displays:
+
+- Every row of every display, with each display's name above its rows. Cells past the edge of a
+  narrower display are greyed out.
+- An outline around each segment.
+- The text behind each row, under its braille, including the rows of a flow, a pinned object
+  and a table laid out in columns. With contracted braille the text is usually wider than the
+  braille, so the end of a long row's text may be cut off.
+- The pins of a drawing, while one is up on a display that can draw.
+
+Open it from NVDA menu, Tools, **BrlMultiline viewer**, or with the command that opens and closes
+it. It opens without taking the focus, so what the reader is doing is not disturbed, and it
+stays on top of other windows. To reach it from the keyboard, use Alt+Tab. It has two
+checkboxes, which Tab moves between:
+
+- **Show the viewer when NVDA starts.**
+- **Hover for cell routing.** Resting the mouse pointer on a cell presses that cell's routing key,
+  as in NVDA's viewer. It waits as long as NVDA's own viewer is set to wait. On a simulated
+  display, resting on a pin of a drawing also touches that pin.
+
+The viewer shows nothing while Windows is locked, and is not offered on secure screens. If NVDA's
+own Braille Viewer is opened while a display of several rows is in use, the add-on says once that
+it shows one row and points to this viewer.
+
+### Copying what the displays show
+
+The command that copies the braille on the displays puts what the viewer shows on the clipboard,
+whether or not the viewer is open. It is meant for a blind developer checking how a script or
+an add-on comes out in braille, without a braille display. For each display it copies the
+display's name, then each row as Unicode braille characters with the text behind that row on the
+line below. A display with a drawing up is copied as braille characters of eight pins each.
+Blank cells at the end of a row are left off. With no braille display in use, NVDA's "No
+braille" included, it says there is nothing to copy and leaves the clipboard alone.
+
+### Trying the add-on without a braille display
+
+Choose **BrlMultiline: several displays as one** in NVDA's braille display settings, and leave
+the list in the **BrlMultiline displays** settings empty. The combined display then simulates a
+Monarch of 8 rows by 32 cells, and says so a few seconds after NVDA starts. Everything else works
+as it would on the hardware: reading as a flow, segments, pinned objects, drawings and the key
+layers. Open the viewer to see the result, or copy it with the copy command.
+
+To simulate more than one display, add **Simulated display 1** and **Simulated display 2** in the
+BrlMultiline displays settings, beside or instead of real displays. By default the first is a
+Monarch and the second a Focus 80. Each one's model is chosen in NVDA's braille settings, under
+**Simulated model**: a Monarch of 8 or 10 rows, a Focus 80, 40 cells on one row, or a custom
+size. A simulated Monarch can show drawings.
+
+A simulated display has no keys of its own. The keyboard's **Simulated display** layer stands in
+for them; see [Layered keys](#layered-keys). Routing keys are pressed by resting the mouse on a
+cell in the viewer, with Hover for cell routing on.
 
 ## Drawings and charts
 
@@ -1269,6 +1361,17 @@ when this happens. If there is nowhere to put the pinned object, or more than on
 you are asked which to keep, and you can cancel. To keep more pins than there is room for,
 divide a display into more segments first.
 
+### The viewer
+
+**Viewer: opens or closes the window showing what is on the braille displays.** Opens the
+BrlMultiline viewer, or closes it if it is open. See
+[The BrlMultiline viewer](#the-brlmultiline-viewer).
+
+**Viewer: copies the braille on the displays, and the text behind it, to the clipboard.** Says
+"Braille copied", or "No braille to copy" when no braille display is in use. See
+[Copying what the displays show](#copying-what-the-displays-show). C in the keyboard's Simulated
+display layer.
+
 ### Panning segments
 
 **Navigation: Scrolls segment N of the first / second / third display forward / back.** Pans a
@@ -1299,7 +1402,16 @@ Unpins and clears that segment.
 numbered across the whole display. You can't pin an object to the segment that follows the
 focus.
 
-**Stops showing an object in segment N.** Unpins and clears that segment.
+**Stops showing an object in segment N.** Unpins and clears that segment. A pin in a place
+gives its room back to the others in the place.
+
+**Monitoring: Opens a dialog to pin the navigator object to a segment, or release a pin.** Pins
+to one of your segments or to a place that makes room for the pin, and resizes, moves, releases
+or sets aside what is pinned. Not assigned to a key by default.
+
+**Monitoring: Sets the pinned objects aside for now, or shows them again.** Each display
+becomes one segment until you press it again, when the pins come back as they were. Not
+assigned to a key by default.
 
 **A routing key in a pinned object goes there,** as clicking it would, even when it is in
 another application. Its window comes forward, and the click is made at the text or item you
@@ -1509,6 +1621,13 @@ The Monarch and the keyboard come with these layers:
   minus magnify and shrink it, and numpad 5 reads the current line. Turn it on with the layer key.
   It doesn't turn on by itself, so the numpad stays the review cursor unless you change that in
   Properties.
+- **Keyboard, Simulated display layer.** The keys of the first simulated display, for trying the
+  add-on without a braille display. Up and down arrow pan back and forward. Left and right arrow
+  are the Monarch's zoom keys: they turn a table's pages, magnify a drawing, or pan unwrapped
+  lines, as the zoom keys do in the layer that is on. g draws the navigator object as a picture,
+  Shift+g takes the drawing off, and c copies what the displays show. Turn it on with the layer
+  key; it stays on until you turn it off, and while it is on the arrow keys don't move the caret.
+  A simulated display also comes with the Monarch's layers.
 
 Other displays start with an empty default layer.
 
@@ -1518,7 +1637,9 @@ changed. The exception is keys the add-on moved: when the graphics keys were mov
 global commands on September 15, 2026, layers saved before then were given the chart and picture
 layers and the graphics layer's new key combinations, once, unless you already had your own
 layer for that kind of drawing or had used that key for something else. Layers saved before
-unwrapped lines existed are given the unwrapped lines layer the same way. If you remove one of
+unwrapped lines existed are given the unwrapped lines layer the same way, and keyboard layers
+saved before the Simulated display layer existed are given that layer and its keys. If you
+remove one of
 these and save, it stays removed. Use "Reset to factory defaults" in the dialog to restore
 everything the add-on includes, which also removes your own changes for that device.
 

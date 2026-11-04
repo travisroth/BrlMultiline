@@ -101,20 +101,19 @@ class ObjectMonitor:
 		:param obj: the object to keep visible.
 		:param segmentKey: the key of the segment to show it in.
 		"""
-		self.name = self._describe(obj)
-		"""What to call this pin. Taken from the object the user chose, before the tree
-		interceptor is substituted for it, because a page's title is more use than the word
-		document."""
+		self.name = self.describe(obj)
+		"""What to call this pin. See `describe`."""
 		self.obj = resolveTarget(obj)
 		self.segmentKey = segmentKey
 		self.regions: list["Region"] | None = None
 		"""The regions being shown, built on first refresh and kept thereafter."""
-		self.pinned = obj
-		"""The object the reader chose, before the tree interceptor was substituted for it.
+		self.pinned = obj if self.obj is obj else getattr(self.obj, "rootNVDAObject", None) or obj
+		"""The object the flow is built from: the one the reader chose, or the page's own root when
+		browse mode was substituted for it, which outlives the link or button the reader was on.
 
-		Kept because a flow does its own substituting: `flowBuild.buildController` asks
-		`documentFor` the same question `resolveTarget` asks, and handing it the answer
-		instead of the question loses the object the answer was about."""
+		An object rather than the tree interceptor because a flow does its own substituting:
+		`flowBuild.buildController` asks `documentFor` the same question `resolveTarget` asks,
+		and handing it the answer instead of the question loses the object the answer was about."""
 
 		self.controller = None
 		"""The flow reading this pin, when its segment has room for one. See `_asAFlow`."""
@@ -161,8 +160,11 @@ class ObjectMonitor:
 		self._lastCells = None
 
 	@staticmethod
-	def _describe(obj: "NVDAObject") -> str:
-		""":return: a short name for an object, for announcing what is being monitored."""
+	def describe(obj: "NVDAObject") -> str:
+		""":return: a short name for what pinning an object shows, which is its page in browse mode."""
+		target = resolveTarget(obj)
+		if target is not obj:
+			obj = getattr(target, "rootNVDAObject", None) or obj
 		if obj.name:
 			return obj.name
 		try:
@@ -220,6 +222,11 @@ class ObjectMonitor:
 			# on the display stays there rather than being replaced with nothing.
 			log.debugWarning(f"Could not generate regions for {self.name!r}", exc_info=True)
 			return
+		# Reading puts back the words a shape stood over, under a segment still showing the
+		# shape. See `BrailleBufferSegment.compressRegions`.
+		compress = getattr(segment, "compressRegions", None)
+		if compress is not None:
+			compress(self.regions)
 		cells = [cell for region in self.regions for cell in region.brailleCells]
 		self.counts[0] += 1
 		if cells != self._lastCells:
@@ -258,10 +265,17 @@ class ObjectMonitor:
 			and self._builtInColumns == self.wantsColumns
 		):
 			return True
+		# A segment resized, as when a place is shared again, keeps the reader where they had panned.
+		place = self._readingPlace() if self._builtInColumns == self.wantsColumns else None
 		self._dropFlow(segment)
 		control = self._build(size)
 		if control is None:
 			return False
+		if place is not None:
+			try:
+				control.enterAtPlace(place)
+			except Exception:
+				log.debugWarning(f"Could not put {self.name!r} back where it was read to", exc_info=True)
 		# Once, as the pin is made, so a band that filled exactly knows whether the run ends
 		# there. See `FlowController.lookPastTheEnd`.
 		control.lookPastTheEnd()
@@ -270,6 +284,16 @@ class ObjectMonitor:
 		self._builtInColumns = self.wantsColumns
 		log.debug(f"Reading the pin on {self.name!r} as a flow in {size[0]} by {size[1]}")
 		return True
+
+	def _readingPlace(self):
+		""":return: where this pin's flow is read to, or None without a flow. See `FlowController.readingPlace`."""
+		if self.controller is None:
+			return None
+		try:
+			return self.controller.readingPlace()
+		except Exception:
+			log.debugWarning(f"Could not read where {self.name!r} is read to", exc_info=True)
+			return None
 
 	def _minimumRows(self, rows: int) -> int:
 		""":return: the fewest rows this pin can be read as a flow in.
@@ -455,6 +479,23 @@ class ObjectMonitor:
 			return
 		self._lastCells = None
 		container.updateDisplay()
+
+	def isGone(self) -> bool:
+		""":return: whether what is pinned can no longer be read, as when its window has closed."""
+		try:
+			if self.obj is not self.pinned and not getattr(self.obj, "isAlive", True):
+				return True
+			self.pinned.role
+			handle = getattr(self.pinned, "windowHandle", None)
+		except Exception:
+			return True
+		if not handle:
+			return False
+		try:
+			import winUser
+		except ImportError:
+			return False
+		return not winUser.isWindow(handle)
 
 	def stop(self) -> None:
 		"""Give up whatever this pin is holding, before it is forgotten."""

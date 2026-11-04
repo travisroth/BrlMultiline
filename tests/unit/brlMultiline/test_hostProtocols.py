@@ -19,6 +19,7 @@ HOSTS = {
 	"LayoutHost": ("layoutOverview", ["layoutOverview"]),
 	"TableHost": ("tableCommands", ["tableCommands"]),
 	"FocusHost": ("focusDisplays", ["focusDisplays"]),
+	"PinHost": ("pinDialog", ["pinDialog"]),
 	"ContextHost": ("keyLayerContexts", ["keyLayerContexts", "keyLayerCommands"]),
 	"ViewerHost": ("viewer", ["viewer"]),
 }

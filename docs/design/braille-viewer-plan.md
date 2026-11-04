@@ -9,9 +9,12 @@ Read [nvda-api-notes.md](nvda-api-notes.md), [architecture.md](architecture.md) 
 [virtual-display-plan.md](virtual-display-plan.md) first. Line numbers are from NVDA master in
 `C:\code\nvda` (2026.3.0dev) and will drift.
 
-Status: built and unit tested, not yet tried in NVDA. Every step of "Order of work" is in; the
-sections below describe what was built, and where it differs from the first design they say so.
-The findings about NVDA's viewer come from reading the code, not from a run.
+Status: built, unit tested and in 2026.3.2. Tried in NVDA: the viewer on a Monarch above a
+Focus 80, simulated mode with Monarchs of 8 and 10 rows, and a flow's text under its rows. Not yet
+tried there: hover routing, the keyboard layer's zoom keys and the checkboxes from the keyboard.
+Every step of "Order of work" is in; the sections below describe what was built, and where it
+differs from the first design they say so. The findings about NVDA's viewer come from reading the
+code, not from a run.
 
 ## Verdict
 

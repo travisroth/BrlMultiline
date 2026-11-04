@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026.3.2
+
+Added:
+
+- **The BrlMultiline viewer.** A window for a sighted teacher, colleague or tester, in NVDA's
+  Tools menu and on a new unassigned command. Where NVDA's own Braille Viewer shows one row, and
+  makes a multi-line display show one row while it is open, this shows every row of every
+  display, each display labelled, segment outlines, the text behind each row under its braille,
+  flows and pinned objects included, and the pins of a drawing. Resting the mouse on a cell
+  routes to it. It opens without taking the focus, can open when NVDA starts, and shows nothing
+  while Windows is locked. Its checkboxes are in the tab order. If NVDA's own viewer is opened on
+  a display of several rows, the add-on says that it shows one row. Tried in NVDA.
+
+- **Copying the braille on the displays.** A new unassigned command copies what the viewer shows
+  to the clipboard, with the viewer open or not: each display's name, each row as Unicode
+  braille, and the text behind that row below it. For a blind developer checking what a script
+  shows in braille without a braille display.
+
+- **Trying the add-on without a braille display.** The combined display, "BrlMultiline: several
+  displays as one", with no displays chosen now simulates a Monarch of 8 rows instead of failing,
+  and says so. Two simulated displays can be added in the BrlMultiline displays settings, beside
+  real ones, and each one's model chosen in NVDA's braille settings: a Monarch of 8 or 10 rows, a
+  Focus 80, 40 cells, or a custom size. Flow, segments, pins, drawings and key layers all work on
+  them. The keyboard gains a Simulated display layer: the up and down arrows pan, left and right
+  are the Monarch's zoom keys, g draws a picture, Shift+g takes it off, and c copies the braille.
+  Keyboard layers saved earlier are given it. Tried in NVDA with simulated Monarchs of 8 and 10
+  rows.
+
+- **Pinning from a dialog.** One new unassigned command opens a dialog that names the navigator
+  object, offers the segments it can be pinned to, pins on Enter, and lists the pins with a
+  Release button, so the Monarch needs one key rather than two for every segment. In browse mode
+  a pin is named after its page.
+
+- **Pins that make their own room.** The dialog also offers places: above or below the focus, or
+  another display in a combination. Pins there share the place equally, or take a size you
+  choose, and can be resized, moved and released from the dialog. The flow keeps to the rows
+  they leave. Pins can be set aside for now, giving every row back to the focus, and shown again
+  where they were. A pin read as a flow keeps its place, down to the row within a wrapped table
+  row or list item, through resizes and moves of the focus between displays.
+
+Fixed:
+
+- **Symbols on a pinned object.** On a pinned object of several parts, such as a link on a page,
+  a symbol such as the visited link shape could be drawn a few cells along, or not at all,
+  leaving its first letter, such as v, on the display. Flows were not affected.
+
+- **The Monarch closing under a write.** Closing the Monarch, as when switching displays or
+  quitting NVDA, now waits for a write in progress, so the driver never writes to a closed
+  device. On NVDA versions with NVDA's own fix for overlapped I/O, from 2027.1, a retired
+  display driver is no longer kept alive.
+
 ## 2026.3.1
 
 Fixed:
