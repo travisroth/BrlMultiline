@@ -17,7 +17,10 @@ See `_monarchStubs` for what stands in for Windows, and for the one method that 
 without it.
 """
 
+import errno
+import threading
 import unittest
+from unittest.mock import patch
 
 from ._monarchStubs import (
 	FakeButtonCap,
@@ -943,6 +946,44 @@ class TestReconnection(MonarchTestCase):
 		self.assertEqual([], hidOpenAttempts[1:])
 
 
+class TestWritingToAClosedDevice(MonarchTestCase):
+	"""A write that arrives after the handle has been closed. See `_sendReport`.
+
+	`hwIo.hid.Hid.close` clears `_file` but leaves `_writeFile` holding the handle value it has
+	just closed, and this driver writes to `_writeFile`. So the close must be noticed here; the
+	handle value alone cannot be trusted to still mean this device.
+	"""
+
+	def test_aClosedDeviceIsRecognised(self):
+		device = FakeHid()
+		self.assertFalse(driverModule._deviceIsClosed(device))
+		device.close()
+		self.assertTrue(driverModule._deviceIsClosed(device))
+
+	def test_aDeviceCarryingNeitherMarkerIsTakenToBeOpen(self):
+		"""The check can recognise a closed device; it must not invent one."""
+		self.assertFalse(driverModule._deviceIsClosed(object()))
+
+	def test_noReportIsWrittenToAClosedDevice(self):
+		driver = self.makeDriver()
+		device = driver._dev
+		device.close()
+		with self.assertRaises(OSError) as caught:
+			driver._sendReport(device, bytes(device.caps.OutputReportByteLength))
+		self.assertEqual(errno.EBADF, caught.exception.errno)
+		self.assertEqual(0, device.writeAttempts)
+
+	def test_aFrameArrivingAfterACloseLosesTheDeviceRatherThanWritingToIt(self):
+		"""The close can come from somewhere else, such as a display handover, while a frame
+		is already on its way to NVDA's I/O thread."""
+		driver = self.makeDriver()
+		device = driver._dev
+		device.close()
+		driver.display([0x3F] * 256)
+		self.assertEqual(0, device.writeAttempts)
+		self.assertTrue(driver._reopening)
+
+
 class TestTerminating(MonarchTestCase):
 	"""Shutdown, including the interleavings that leak an exclusive handle."""
 
@@ -1007,6 +1048,61 @@ class TestTerminating(MonarchTestCase):
 		driver = self.makeDriver()
 		driver.terminate()
 		driver.terminate()
+
+	def test_terminationDoesNotCloseTheDeviceUnderAWriteInFlight(self):
+		"""The gap `_sendReport`'s own check cannot cover, found in review.
+
+		The check says the device is open, and `terminate` then closes it before the write is
+		submitted. `_reopenDevice` has always swapped the handle under `_writeLock` for this
+		reason; termination is the other swap.
+		"""
+		driver = self.makeDriver()
+		device = driver._dev
+		inWrite = threading.Event()
+		release = threading.Event()
+		closedAtSubmission = []
+		submit = device.write
+
+		def pausedWrite(data):
+			inWrite.set()
+			self.assertTrue(release.wait(5), "the test never released the writer")
+			closedAtSubmission.append(driverModule._deviceIsClosed(device))
+			submit(data)
+
+		device.write = pausedWrite
+		writer = threading.Thread(target=lambda: driver.display([0x3F] * 256), daemon=True)
+		writer.start()
+		self.assertTrue(inWrite.wait(5), "the write never started")
+		terminator = threading.Thread(target=driver.terminate, daemon=True)
+		terminator.start()
+		try:
+			terminator.join(0.3)
+			self.assertEqual(0, device.closed, "the device was closed while a write was in flight")
+		finally:
+			release.set()
+			writer.join(5)
+			terminator.join(5)
+		self.assertFalse(writer.is_alive())
+		self.assertFalse(terminator.is_alive(), "termination never finished")
+		self.assertEqual([False], closedAtSubmission)
+		self.assertEqual(1, device.closed)
+		self.assertIsNone(driver._dev)
+
+	def test_terminationStopsWaitingForAWriteThatBrokeItsOwnDeadline(self):
+		"""Shutdown gives the writer the time `hidWrite` bounds it to, and no more. A braille
+		driver that can hang NVDA's shutdown is the failure this driver exists to avoid."""
+		driver = self.makeDriver()
+		device = driver._dev
+		driver._writeLock.acquire()
+		self.addCleanup(driver._writeLock.release)
+		with patch.object(driverModule, "DETACH_TIMEOUT", 0.05):
+			driver.terminate()
+		self.assertIsNone(driver._dev)
+		self.assertEqual(1, device.closed)
+		self.assertTrue(
+			any("did not finish within" in message for level, message in log.messages if level == "warning"),
+			log.messages,
+		)
 
 
 class TestBeingOffered(MonarchTestCase):

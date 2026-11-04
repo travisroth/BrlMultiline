@@ -25,7 +25,8 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline.flow import Edge, EdgeState, RowKind  # noqa: E402
-from brlMultiline.flowControl import FlowController  # noqa: E402
+from brlMultiline.flow import NO_POSITION  # noqa: E402
+from brlMultiline.flowControl import FlowController, alignedRowText  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
 from brlMultiline.flowSources import (  # noqa: E402
 	DocumentFlowSource,
@@ -722,6 +723,55 @@ class TestDescribing(unittest.TestCase):
 	def test_theActiveBlockIsMarked(self):
 		control = controllerOver(["a", "b"], numCols=8, numRows=4)
 		self.assertIn("*", control.describeRows()[0])
+
+
+class TestTheTextBehindEachRow(unittest.TestCase):
+	"""What the viewer shows under a flow's cells. See docs/design/braille-viewer-plan.md."""
+
+	def test_eachRowHasItsOwnText(self):
+		control = controllerOver(["Heading", "abcdefghijkl"], numCols=8, numRows=4)
+		self.assertEqual(control.windowRowTexts(), ["Heading", "abcdefgh", "ijkl", ""])
+
+	def test_thereIsOneTextForEachRowOfCells(self):
+		control = controllerOver(["one", "two"], numCols=8, numRows=4)
+		self.assertEqual(len(control.windowRowTexts()) * 8, len(control.cells()))
+
+	def test_thePinnedRowComesFirst(self):
+		control = controllerOver(["Heading", "body"], numCols=8, numRows=4)
+		control.setPinned(next(iter(control.blocks.values())))
+		texts = control.windowRowTexts()
+		self.assertEqual(texts[0], "Heading")
+		self.assertEqual(len(texts) * 8, len(control.cells()))
+
+
+def rendering(*rows):
+	return types.SimpleNamespace(rowOffset=0, positions=tuple(tuple(row) for row in rows))
+
+
+class TestAligningARowsText(unittest.TestCase):
+	def test_anIndentPutsTheTextUnderItsCells(self):
+		region = types.SimpleNamespace(rawText="item")
+		row = (NO_POSITION, NO_POSITION, 0, 1, 2, 3)
+		self.assertEqual(alignedRowText(region, rendering(row), 0), "  item")
+
+	def test_eachRunStartsAtItsOwnColumn(self):
+		region = types.SimpleNamespace(rawText="ab cd")
+		row = (0, 1, NO_POSITION, NO_POSITION, NO_POSITION, 3, 4)
+		self.assertEqual(alignedRowText(region, rendering(row), 0), "ab   cd")
+
+	def test_contractedTextPushesTheNextRunAlong(self):
+		# Two cells that read as a whole word each.
+		region = types.SimpleNamespace(rawText="knowledge people", brailleToRawPos=[0, 10])
+		row = (0, NO_POSITION, 1)
+		self.assertEqual(alignedRowText(region, rendering(row), 0), "knowledge people")
+
+	def test_aRowOfPaddingReadsNothing(self):
+		region = types.SimpleNamespace(rawText="text")
+		self.assertEqual(alignedRowText(region, rendering((NO_POSITION,) * 4), 0), "")
+
+	def test_aRowOutsideTheRenderingReadsNothing(self):
+		region = types.SimpleNamespace(rawText="text")
+		self.assertEqual(alignedRowText(region, rendering((0,)), 3), "")
 
 
 class TestDryRun(unittest.TestCase):

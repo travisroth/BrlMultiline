@@ -381,6 +381,9 @@ def _shippedName(layer: Layer) -> str | None:
 		# Translators: the name of a layer of keys BrlMultiline comes with, for moving through a
 		# pinned document by headings, links and the rest.
 		"pinnedDocument": ("Pinned document", pgettext("key layer", "Pinned document")),
+		# Translators: the name of a layer of keys BrlMultiline comes with, for the keys of a simulated
+		# braille display, used to test without one.
+		"simulatedDisplay": ("Simulated display", pgettext("key layer", "Simulated display")),
 	}
 	english, translated = names.get(layer.id, (None, None))
 	return translated if english is not None and layer.name == english else None
@@ -526,6 +529,8 @@ def scriptFor(target: Target, gesture) -> tuple:
 	blocked key. A script whose object is not here comes back as one saying so, with None."""
 	if target.kind == keyLayers.KEY:
 		return _emulateScript(target.scriptName), None
+	if target.kind == keyLayers.DISPLAY_KEY:
+		return _displayKeyScript(target.scriptName), None
 	if target.kind == keyLayers.BLOCKED:
 		return _blockedScript(), None
 	script, found = resolve(target, gesture)
@@ -659,6 +664,35 @@ def _emulateScript(key: str):
 	script.__doc__ = _("Emulates pressing {key} on the system keyboard").format(key=key[len("kb:") :])
 	_scripts[key] = script
 	return script
+
+
+def _displayKeyScript(identifier: str):
+	"""A script that presses a braille display's key, as that display raises its own.
+
+	:param identifier: as `Target.displayKey` holds it.
+	"""
+	cached = _scripts.get(identifier)
+	if cached is not None:
+		return cached
+	source, _separator, keyId = identifier.partition(":")
+	source = source[len("br(") : -1] if source.startswith("br(") and source.endswith(")") else source
+
+	def script_keyLayerDisplayKey(gesture):
+		from braille.display.gesture import BrailleDisplayGesture
+
+		pressed = BrailleDisplayGesture()
+		pressed.source = source
+		pressed.id = keyId
+		try:
+			inputCore.manager.executeGesture(pressed)
+		except inputCore.NoInputGestureAction:
+			pass
+
+	# Translators: input help for a key in a layer that presses a braille display's key. The
+	# placeholders are the key and the display's driver name.
+	script_keyLayerDisplayKey.__doc__ = _("Presses {key} on {display}").format(key=keyId, display=source)
+	_scripts[identifier] = script_keyLayerDisplayKey
+	return script_keyLayerDisplayKey
 
 
 def _blockedScript():

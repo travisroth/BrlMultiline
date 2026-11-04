@@ -670,5 +670,30 @@ class TestInstall(unittest.TestCase):
 		self.assertEqual({}, dispatch._active)
 
 
+class TestDisplayKeys(unittest.TestCase):
+	"""A layer's key that presses a braille display's key. See docs/design/braille-viewer-plan.md, Input."""
+
+	def test_theDisplaysKeyIsRaisedAsItsOwn(self):
+		pressed = []
+		manager = inputCore.manager
+		self.addCleanup(setattr, inputCore, "manager", manager)
+		inputCore.manager = types.SimpleNamespace(executeGesture=pressed.append)
+		script, found = dispatch.scriptFor(Target.displayKey("br(brlMultilineSimulated1):zoomIn"), None)
+		self.assertIsNone(found)
+		script(None)
+		self.assertEqual([(gesture.source, gesture.id) for gesture in pressed], [("brlMultilineSimulated1", "zoomIn")])
+		self.assertIsInstance(pressed[0], BrailleDisplayGesture)
+
+	def test_aKeyNothingAnswersIsQuiet(self):
+		def refuse(gesture):
+			raise inputCore.NoInputGestureAction
+
+		manager = inputCore.manager
+		self.addCleanup(setattr, inputCore, "manager", manager)
+		inputCore.manager = types.SimpleNamespace(executeGesture=refuse)
+		script, _found = dispatch.scriptFor(Target.displayKey("br(brlMultilineSimulated1):zoomOut"), None)
+		script(None)
+
+
 if __name__ == "__main__":
 	unittest.main()

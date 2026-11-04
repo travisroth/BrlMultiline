@@ -49,7 +49,7 @@ sys.path.insert(
 
 from pinBuffer import PinBuffer  # noqa: E402
 
-from brlMultiline.graphics import PinRect, findSurface  # noqa: E402
+from brlMultiline.graphics import PinRect, findSurface, findSurfaces  # noqa: E402
 from brlMultiline.graphicsMode import (  # noqa: E402
 	DEFAULT_TEXT_LINES,
 	FIT,
@@ -227,6 +227,19 @@ class TestFindingTheSurface(unittest.TestCase):
 	def test_aDisplayNamingItselfOursButNotShapedLikeItIsRefusedQuietly(self):
 		useDisplay(types.SimpleNamespace(name="brlMultilineVirtual"))
 		self.assertIsNone(findSurface())
+
+	def test_everyDrawableMemberIsFoundTopFirst(self):
+		upper, lower = FakeDrawableDriver(), FakeDrawableDriver()
+		display = fakeVirtualDisplay(
+			("upperPad", 0, 8, 32),
+			("freedomScientific", 8, 1, 80),
+			("lowerPad", 9, 8, 32),
+			drivers={"upperPad": upper, "freedomScientific": FakePlainDriver(), "lowerPad": lower},
+		)
+		useDisplay(display)
+		surfaces = findSurfaces()
+		self.assertEqual([(surface.driver, surface.rowStart) for surface in surfaces], [(upper, 0), (lower, 9)])
+		self.assertIs(findSurface().driver, upper)
 
 	def test_aDisplayThatWillNotSayItsSizeIsNotASurface(self):
 		driver = FakeDrawableDriver()

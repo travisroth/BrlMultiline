@@ -28,6 +28,7 @@ What that buys, beyond graphics:
 """
 
 import collections
+import errno
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -89,6 +90,15 @@ Each holds a buffer and an event handle, possibly forever, and every reconnectio
 a write. Past the limit the reader must reselect the display or restart NVDA.
 """
 
+DETACH_TIMEOUT = WRITE_TIMEOUT + hidWrite.CANCEL_GRACE + 1.0
+"""Seconds `terminate` waits for a write in flight before taking the handle out from under it.
+
+A write holds `_writeLock` for at most its own deadline plus the grace `hidWrite` allows a
+cancellation, so this is only reached if that bound has been broken. Shutdown then goes ahead
+anyway, because NVDA waiting forever on a braille driver is the worse of the two failures.
+See `_detachDevice`.
+"""
+
 
 def _callLater(milliseconds: int, work, *args):
 	"""Schedule something, from whichever thread this is.
@@ -124,6 +134,25 @@ def _stopTimer(timer) -> None:
 		timer.Stop()
 	except Exception:
 		log.debugWarning("BrlMultiline: could not stop a Monarch timer", exc_info=True)
+
+
+def _deviceIsClosed(device) -> bool:
+	"""Whether this device's handle has been closed, so that writing to it is a mistake.
+
+	`hwIo.hid.Hid.close` marks itself `_isClosed` and clears `_file`, but leaves `_writeFile`
+	holding the handle value it has just closed, and Windows may have handed that value to
+	something else since. `_sendReport` writes to `_writeFile`, so it asks here first.
+
+	Either marker is enough, so that this still answers on an NVDA that keeps only one of them.
+	A device carrying neither is taken to be open, which is what one NVDA has not closed looks
+	like; this cannot invent a closed state, only recognise one.
+
+	:param device: the `hwIo.hid.Hid` a report is about to go to.
+	:return: whether it has been closed.
+	"""
+	if getattr(device, "_isClosed", False):
+		return True
+	return hasattr(device, "_file") and device._file is None
 
 
 class CellGlyph:
@@ -225,9 +254,11 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._pinAtRouting: tuple[int, int] | None = None
 		self._repaintPending = False
 		# Lock order: `_stateLock`, then `_lifecycleLock`, then `_writeLock`, never the reverse.
-		# Only `_reopenDevice` holds two at once; a failed write reports the device lost after
-		# releasing `_writeLock`, and `terminate` releases `_lifecycleLock` before the base
-		# class blanks the display.
+		# Only the two methods that swap the device handle hold two at once, `_reopenDevice` and
+		# `_detachDevice`; a failed write reports the device lost after releasing `_writeLock`,
+		# and `terminate` releases `_lifecycleLock` before the base class runs. Nothing holds
+		# `_writeLock` and then waits for `_lifecycleLock`, which is what lets `_detachDevice`
+		# wait out a write in flight without deadlocking.
 		self._stateLock = threading.RLock()
 		"""What the panel is made of: cells, glyphs, overlays, pitch, the pending flag."""
 		self._writeLock = threading.Lock()
@@ -1254,10 +1285,29 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			self._retryDelay = POLL_INTERVAL
 
 	def _sendReport(self, device, data: bytes) -> None:
-		"""Write one output report, giving up if the device does not take it in time.
+		"""Write one output report, unless the device is closed, and not for longer than allowed.
+
+		The closed check is the driver's own, not NVDA's: `hwIo.hid.Hid.close` leaves
+		`_writeFile` pointing at the handle it closed, so a write arriving after a close — from
+		a display handover, or from a frame already on NVDA's I/O thread — would go to whatever
+		Windows has since reissued that value to. Raised rather than dropped, because a closed
+		device is a lost device, and `_writePins` already knows how to lose one.
+
+		:param device: the `hwIo.hid.Hid` this driver opened.
+		:param data: the report, ID in the first byte.
+		:raises OSError: if the device has been closed, or the write failed.
+		:raises hidWrite.WriteTimedOut: if the device did not take it within `WRITE_TIMEOUT`.
+		"""
+		if _deviceIsClosed(device):
+			raise OSError(errno.EBADF, "the Monarch's device has been closed")
+		self._writeReport(device, data)
+
+	def _writeReport(self, device, data: bytes) -> None:
+		"""Hand one report to Windows, giving up if the device does not take it in time.
 
 		Not `device.write`, which waits indefinitely. The buffer comes from the device's own
-		`_prepareWriteBuffer`, as `write` would send it.
+		`_prepareWriteBuffer`, as `write` would send it. Separate from `_sendReport` so that the
+		tests can replace the part that needs a real Windows handle and keep the rest.
 
 		:param device: the open `hwIo.hid.Hid`.
 		:param data: the report, ID in the first byte.
@@ -1513,13 +1563,46 @@ class BrailleDisplayDriver(HidBrailleDriver):
 
 	# --- Shutdown ------------------------------------------------------------------------
 
-	def terminate(self):
-		"""Stop polling and unhook before letting the base class close the device.
+	def _detachDevice(self):
+		"""Take the device out from under the writer, so that nothing can reach it again.
 
-		`_terminated` is set first, so no timer, read or blanking write starts a reconnection.
-		With no device the inherited close of `_dev` is skipped and blanking suppressed. The
-		flag is set under `_lifecycleLock`, which is released before the base class blanks the
-		display, to keep the lock order.
+		`_writeLock` promises that the handle is not swapped mid-report, and closing it is a
+		swap: `_sendReport` checks that the device is open and then hands its write handle to
+		Windows, so a close landing between those two steps submits a handle that has already
+		been closed and whose value Windows may since have reissued. `_reopenDevice` swaps
+		under this lock; termination is the other swap and must do the same.
+
+		The lock is held only for the swap. The close happens outside it, since a close that
+		blocks would otherwise hold the lock against the very writer this waited for.
+
+		:return: the device to close, or None if there was none.
+		"""
+		with self._lifecycleLock:
+			acquired = self._writeLock.acquire(timeout=DETACH_TIMEOUT)
+			if not acquired:
+				log.warning(
+					f"BrlMultiline: a Monarch write did not finish within {DETACH_TIMEOUT} seconds; "
+					"closing the device under it rather than holding up NVDA",
+				)
+			try:
+				device, self._dev = getattr(self, "_dev", None), None
+				self._pinCap = None
+			finally:
+				if acquired:
+					self._writeLock.release()
+		return device
+
+	def terminate(self):
+		"""Stop polling and unhook, then take the device out and close it.
+
+		`_terminated` is set first, so no timer, read or blanking write starts a reconnection,
+		and from that moment `_writePins` returns without writing. The device is then detached
+		under `_writeLock` rather than closed where it stands, so that a write already on the
+		wire cannot hand Windows a handle this method has closed; see `_detachDevice`. That
+		leaves the base class nothing to blank, which `_terminated` had already decided.
+
+		The flag is set under `_lifecycleLock`, which is released before the base class runs,
+		to keep the lock order.
 		"""
 		with self._lifecycleLock:
 			self._terminated = True
@@ -1534,15 +1617,20 @@ class BrailleDisplayDriver(HidBrailleDriver):
 				self._glyphs.clear()
 				self._repaintPending = False
 		finally:
+			device = self._detachDevice()
 			try:
-				if getattr(self, "_dev", None) is None:
-					self._suppressDisplayClear = True
-					braille.display.driver.BrailleDisplayDriver.terminate(self)
-				else:
-					super().terminate()
-					self._dev = None
+				# The base class is called directly, not through `HidBrailleDriver`, whose
+				# only addition is the close of `_dev` this method now owns. Blanking is
+				# suppressed because there is no longer a device to blank.
+				self._suppressDisplayClear = True
+				braille.display.driver.BrailleDisplayDriver.terminate(self)
 			finally:
-				# A device a reconnection installed just before the flag is closed here.
+				if device is not None:
+					try:
+						device.close()
+					except Exception:
+						log.debugWarning("BrlMultiline: could not close the Monarch handle", exc_info=True)
+				# A device a reconnection installed just after the detach is closed here.
 				self._closeStrayDevice()
 
 	gestureMap = HidBrailleDriver.gestureMap

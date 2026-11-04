@@ -18,9 +18,9 @@ For this driver the display being left is often one it must open, and NVDA still
 
 **Into the virtual display.** `braille.handler.display` is still the old driver while our
 `__init__` runs, so it is adopted as a member as it stands, with its `terminate` replaced by a
-one-shot no-op. Not closed and reopened, because of an NVDA defect: `hwIo.base.IoBase.__del__`
-closes a handle `close` already closed, which Windows may have reused. See `_retireDriver` in
-the driver module.
+one-shot no-op. Not closed and reopened, because these devices are slow to reopen, and because
+on an NVDA before 2027.1 `hwIo.base.IoBase.__del__` closes a handle `close` already closed,
+which Windows may have reused. See `_needsRetiring` in the driver module.
 
 **Out of the virtual display.** The new driver is built before we are told, so
 `_switchDisplay` is patched, only while such a driver is live: if the display being replaced

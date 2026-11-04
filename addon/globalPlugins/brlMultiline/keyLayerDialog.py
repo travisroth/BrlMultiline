@@ -252,6 +252,13 @@ class LayerEditor:
 			if target.kind == keyLayers.KEY:
 				# An emulated key is always available: it is a key, not a command that needs an object.
 				known[key] = Command(self.emulatedCategory, self.describeKey(target.scriptName), target)
+			elif target.kind == keyLayers.DISPLAY_KEY:
+				# A display's key is always available too, and is listed by what it presses.
+				known[key] = Command(
+					self.emulatedCategory,
+					self.describeDisplayKey(target.scriptName),
+					target,
+				)
 			else:
 				known[key] = Command(UNAVAILABLE, self._unavailableName(target), target)
 		pattern = self._pattern()
@@ -318,6 +325,15 @@ class LayerEditor:
 			# key's name and the display.
 			return _("{key}, acting for {display}").format(key=name, display=self.deviceLabel(target.actsFor))
 		return name
+
+	@staticmethod
+	def describeDisplayKey(identifier: str) -> str:
+		""":return: how the editor names a binding that presses a braille display's key."""
+		source, _separator, keyId = identifier.partition(":")
+		display = source[len("br(") : -1] if source.startswith("br(") and source.endswith(")") else source
+		# Translators: a key in a layer that presses a braille display's key, as the layered keys dialog
+		# lists it. The placeholders are the key and the display.
+		return _("Press {key} on {display}").format(key=keyId, display=display)
 
 	def _unavailableName(self, target: Target) -> str:
 		return f"{target.scriptName} ({target.className})"

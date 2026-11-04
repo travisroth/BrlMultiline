@@ -601,6 +601,10 @@ class BrailleBuffer(AutoPropertyObject):
 	def _get_windowRawText(self):
 		return self.rawText[self.windowStartPos : self.windowEndPos]
 
+	def bufferPositionsToRawText(self, startPos, endPos):
+		"""NVDA's maps cells to text through `brailleToRawPos`; here a cell is a character."""
+		return self.rawText[startPos:endPos]
+
 	def bufferPosToWindowPos(self, bufferPos):
 		"""Where a cell of the buffer is within the window.
 
@@ -1738,6 +1742,10 @@ class FakeConf(dict):
 		super().__setitem__(key, value)
 
 
+class NoInputGestureAction(LookupError):
+	"""Raised by `inputCore.manager.executeGesture` when a gesture has nothing to do."""
+
+
 class Decider:
 	"""NVDA's `extensionPoints.Decider`, including the two behaviours that matter.
 
@@ -2194,6 +2202,8 @@ callLaterQueue = CallLaterQueue()
 
 displayChanged = Action()
 displaySizeChanged = Action()
+pre_writeCells = Action()
+"""Raised by `BrailleHandler._writeCells` with the cells about to be written. The viewer listens."""
 post_configProfileSwitch = Action()
 
 clipboard = []
@@ -3059,7 +3069,12 @@ def _installPluginStubs() -> None:
 		Role=lambda role: types.SimpleNamespace(displayString=str(role)),
 		OutputReason=types.SimpleNamespace(CARET="caret", FOCUS="focus", QUERY="query", QUICKNAV="quicknav"),
 	)
-	_module("braille.extensions", displayChanged=displayChanged, displaySizeChanged=displaySizeChanged)
+	_module(
+		"braille.extensions",
+		displayChanged=displayChanged,
+		displaySizeChanged=displaySizeChanged,
+		pre_writeCells=pre_writeCells,
+	)
 	_module("braille.brailleHandler", BrailleHandler=FakeBrailleHandler)
 	_module(
 		"braille.constants",
@@ -3152,7 +3167,12 @@ def installStubs() -> None:
 	# composite display's own notification, and which stub module a test installed should not
 	# decide whether it finds one.
 	_module("extensionPoints", Action=Action, callWithSupportedKwargs=callWithSupportedKwargs)
-	_module("inputCore", decide_executeGesture=decide_executeGesture, manager=InputManager())
+	_module(
+		"inputCore",
+		decide_executeGesture=decide_executeGesture,
+		manager=InputManager(),
+		NoInputGestureAction=NoInputGestureAction,
+	)
 	# The two panning commands the add-on wraps, on the class it wraps them on.
 	_module("globalCommands", GlobalCommands=GlobalCommands, commands=GlobalCommands())
 	_module("baseObject", AutoPropertyObject=AutoPropertyObject, ScriptableObject=ScriptableObject)
@@ -3373,6 +3393,7 @@ def resetPluginState() -> None:
 	log.messages.clear()
 	displayChanged.handlers.clear()
 	displaySizeChanged.handlers.clear()
+	pre_writeCells.handlers.clear()
 	post_configProfileSwitch.handlers.clear()
 	decide_executeGesture.handlers.clear()
 	sys.modules["gui"].settingsDialogs.NVDASettingsDialog.categoryClasses.clear()

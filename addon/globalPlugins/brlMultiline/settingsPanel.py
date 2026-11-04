@@ -133,10 +133,26 @@ def displayDescriptions() -> dict[str, str]:
 	try:
 		from braille.display import getDisplayList
 
-		return dict(getDisplayList(excludeNegativeChecks=False))
+		descriptions = dict(getDisplayList(excludeNegativeChecks=False))
 	except Exception:
 		log.debugWarning("BrlMultiline: could not read the braille display list", exc_info=True)
-		return {}
+		descriptions = {}
+	descriptions.update(simulatedDescriptions())
+	return descriptions
+
+
+def simulatedDescriptions() -> dict[str, str]:
+	"""The names of the combined display's simulated members, which are not in NVDA's list.
+
+	:return: driver name to description, in the order they are offered.
+	"""
+	first, second = devices.SIMULATED_DRIVER_NAMES
+	return {
+		# Translators: the name of the first simulated braille display, for testing without hardware.
+		first: _("Simulated display 1"),
+		# Translators: the name of the second simulated braille display, for testing without hardware.
+		second: _("Simulated display 2"),
+	}
 
 
 class _DivisionTarget(NamedTuple):
@@ -1276,7 +1292,7 @@ class VirtualDisplaySettingsPanel(gui.settingsDialogs.SettingsPanel):
 		return _("{display}: in use").format(display=name)
 
 	def _addable(self) -> list[str]:
-		""":return: the drivers that may still be added, in NVDA's own order.
+		""":return: the drivers that may still be added, in NVDA's own order, then the simulated ones.
 
 		Neither "no braille" nor the combined display itself.
 		"""

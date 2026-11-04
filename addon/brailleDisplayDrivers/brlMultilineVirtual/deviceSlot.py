@@ -81,6 +81,11 @@ class DeviceSlot:
 		chains onto any the driver has, such as `freedomScientific`'s restart; gives up only
 		when that did not handle it; and returns the driver's own value. Best effort, through
 		the private `_dev`.
+
+		Two things reach the hook, not one: a read that completed with an error, and, on an
+		NVDA that checks `ReadFileEx`, a read that could not be started at all. The second can
+		be a device that is still there, such as too many outstanding operations, so an error
+		here is not proof of a disconnection.
 		"""
 		device = getattr(self.driver, "_dev", None)
 		if device is None or not hasattr(device, "_onReadError"):

@@ -21,6 +21,7 @@ HOSTS = {
 	"FocusHost": ("focusDisplays", ["focusDisplays"]),
 	"PinHost": ("pinDialog", ["pinDialog"]),
 	"ContextHost": ("keyLayerContexts", ["keyLayerContexts", "keyLayerCommands"]),
+	"ViewerHost": ("viewer", ["viewer"]),
 }
 """Each protocol: the module defining it, and the modules whose use of the plugin it lists."""
 
