@@ -168,6 +168,29 @@ they were panned to, as it unlocks. App layout segments are pins as far as this 
 Found by comparing with Braille Essentials, which checks the lock screen before it shows
 anything; not yet tried on hardware.
 
+### The pinned objects dialog
+
+The pin and release commands come one per segment, so pinning to any of eight segments takes
+sixteen keys, which a Monarch does not have to spare. `pinDialog` does the same work behind
+one key (GitHub issue 1). Decisions:
+
+1. **The navigator object is taken when the key is pressed.** Once the dialog is up, the
+   navigator is on the dialog's own controls, so `startMonitoring` takes the object to pin
+   as an argument rather than reading the navigator then.
+2. **The pin is made after the dialog closes.** Pin is the default button and closes the
+   dialog, so "Monitoring ... in segment ..." is said once the focus is back, not under the
+   dialog's own speech. Release keeps the dialog open, since several pins may be released.
+3. **The segments offered are the ones `startMonitoring` would accept and that hold no pin.**
+   Both ask `pinRefusal`, so the list and the command cannot disagree. A segment that holds a
+   pin is left out rather than replaced, so a reader releases a pin on purpose.
+4. **Segments are held by key, and named by display.** A rebuild while the dialog is up does
+   not turn a choice into a different segment. With displays combined, each is named as
+   "Segment 2 (segment 0 of the second display)", the way the display relative commands name
+   them. Typing just the number works too, since the combo box is editable.
+
+Pins that make their own room, rather than needing segments set up first, are planned in
+[pin-places-plan.md](pin-places-plan.md).
+
 ## Milestone 6 — Views
 
 Built after the first five, in response to a design question about whether the segment

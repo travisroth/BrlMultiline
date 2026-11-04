@@ -251,7 +251,8 @@ class FlowBand(PanelOwner):
 		focus moves the band.
 
 		As many rows from the top as the reader asked for, all of them by default. A count
-		larger than the display is trimmed rather than refused.
+		larger than the display is trimmed rather than refused. Rows a pin has made room in are
+		left to it; see `GlobalPlugin.roomForFlow`.
 
 		:param devices: the physical displays, read from the driver when not given.
 		:return: the rectangle to claim.
@@ -259,11 +260,12 @@ class FlowBand(PanelOwner):
 		numRows, numCols = self._displaySize()
 		devices = deviceMap() if devices is None else devices
 		device = preferredDevice(self._displayName(devices, numCols), devices)
-		whole = device.liveRect if device is not None else wholeDisplayRect(numRows, numCols)
+		rect = device.liveRect if device is not None else wholeDisplayRect(numRows, numCols)
 		rows = bmConfig.getFlowRows()
-		if rows and rows < whole.numRows:
-			return SegmentRect(row=whole.row, col=whole.col, numRows=rows, numCols=whole.numCols)
-		return whole
+		if rows and rows < rect.numRows:
+			rect = SegmentRect(row=rect.row, col=rect.col, numRows=rows, numCols=rect.numCols)
+		room = getattr(self.plugin, "roomForFlow", None)
+		return room(rect) if room is not None else rect
 
 	def _displayName(self, devices: "list[DeviceInfo]", numCols: int) -> str:
 		""":return: the driver name of the display this band belongs on.

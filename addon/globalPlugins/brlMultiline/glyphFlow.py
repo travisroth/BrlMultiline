@@ -847,6 +847,18 @@ def keepCompressed(region, target: Target | None = None) -> None:
 	compressRegion(region, target)
 
 
+def hasCurrentMarks(region) -> bool:
+	""":return: whether a region's marks, if it has any, were worked out over the cells it holds.
+
+	False once it has been read again since it was compressed. See `STAMP`.
+
+	:param region: the region, which may be anything or nothing.
+	"""
+	if region is None or getattr(region, MARKS, None) is None:
+		return True
+	return getattr(region, STAMP, None) == tuple(getattr(region, "brailleCells", None) or ())
+
+
 def marksOf(region) -> dict:
 	""":return: the glyphs a region is carrying, or an empty table.
 

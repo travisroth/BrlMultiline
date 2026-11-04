@@ -235,11 +235,22 @@ class BrailleBufferSegment(BrailleBuffer):
 
 		A segment built only to lay text out is left alone. Its caller has already decided.
 		"""
-		target = self.glyphTarget()
-		if self.isOnDisplay:
-			for region in self.visibleRegions:
-				glyphFlow.compressRegion(region, target)
+		self.compressRegions(self.visibleRegions)
 		super().update()
+
+	def compressRegions(self, regions) -> None:
+		"""Draw what can be drawn as a shape in regions bound for this segment.
+
+		For an owner that reads its regions again outside `update`, so their cells match what
+		the segment shows and compare equal when nothing changed. Compressing is deterministic.
+
+		:param regions: the regions, read and not yet laid out.
+		"""
+		if not self.isOnDisplay:
+			return
+		target = self.glyphTarget()
+		for region in regions:
+			glyphFlow.compressRegion(region, target)
 
 	def glyphTarget(self):
 		""":return: the display this segment is drawn on, if one piece of hardware can draw a
@@ -262,10 +273,15 @@ class BrailleBufferSegment(BrailleBuffer):
 		this turns those into places on the segment, and the container turns those into places
 		on the display. A symbol that has been scrolled out of the window is simply not in the
 		answer, which is what `bufferPosToWindowPos` refusing means.
+
+		Nothing while a region has been read again since it was laid out: its cells no longer
+		match the window's, so every place after it would land on the wrong cell.
 		"""
 		found: dict = {}
 		start = 0
 		for region in self.visibleRegions:
+			if not glyphFlow.hasCurrentMarks(region):
+				return {}
 			cells = getattr(region, "brailleCells", None) or ()
 			for at, fitted in glyphFlow.marksOf(region).items():
 				try:

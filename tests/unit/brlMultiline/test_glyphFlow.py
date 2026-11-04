@@ -1056,6 +1056,54 @@ class TestARegionReadAgainUnderTheRendering(GlyphTestCase):
 		self.assertEqual(bytes(region.brailleCells).decode(), "Search now")
 
 
+class TestARegionReadAgainInAnOrdinarySegment(GlyphTestCase):
+	"""A pin is read again on a timer, which gives its regions back their words while the
+	segment is still showing the shapes. See `ObjectMonitor.refresh`."""
+
+	def setUp(self):
+		super().setUp()
+		from brlMultiline.container import DisplayContainer
+		from brlMultiline.views import viewFromConfig
+
+		self.container = DisplayContainer(braille().handler, viewFromConfig(8, 32))
+		braille().handler.mainBuffer = braille().handler.buffer = self.container
+		self.segment = self.container.segments[0]
+		self.regions = [self.region("btn Home "), self.region("btn Search")]
+
+	def monitor(self):
+		""":return: a pin showing the two regions in the segment, as its refresh finds them."""
+		from brlMultiline.objectMonitor import ObjectMonitor
+
+		monitor = object.__new__(ObjectMonitor)
+		monitor.name = "pin"
+		monitor.obj = FakeObject()
+		monitor.segmentKey = self.segment.key
+		monitor.regions = self.regions
+		monitor._lastCells = None
+		monitor.counts = [0, 0]
+		monitor._asAFlow = lambda segment: False
+		return monitor
+
+	def test_anUnchangedRefreshKeepsTheShapesOnTheirCells(self):
+		monitor = self.monitor()
+		monitor.refresh(reveal=True)
+		self.container.windowBrailleCells
+		self.assertEqual(sorted(self.display.given), [0, 7])
+		writes = braille().handler.updateCount
+		monitor.refresh()
+		self.container.windowBrailleCells
+		self.assertEqual(bytes(self.segment.brailleCells).decode(), "b Home b Search")
+		self.assertEqual(sorted(self.display.given), [0, 7])
+		self.assertEqual(braille().handler.updateCount, writes)
+
+	def test_aSegmentWhoseRegionWasReadAgainOffersNoShapes(self):
+		for region in self.regions:
+			self.segment.append(region)
+		self.container.update()
+		self.regions[0].update()
+		self.assertEqual(self.segment.cellGlyphs(), {})
+
+
 class TestAnOrdinarySegment(GlyphTestCase):
 	"""Not a flow feature. A feature of a display that can draw one.
 
