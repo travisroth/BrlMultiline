@@ -21,7 +21,15 @@ from braille.regions.focus import getFocusRegions
 from braille.regions.textInfo import TextInfoRegion
 from logHandler import log
 
-from . import bmConfig, flowForms, flowObjects, flowTable, flowTableLayouts, flowTableSource
+from . import (
+	bmConfig,
+	flowForms,
+	flowObjects,
+	flowTable,
+	flowTableLayouts,
+	flowTableSource,
+	stageTimes,
+)
 from .flow import CallCancelled
 from .flowControl import FlowController
 from .flowRender import FlowRenderer
@@ -361,7 +369,8 @@ def buildTheTable(
 	# for the cells the setting exists to save. See `flowTableSource.withoutCapitals`.
 	plainCase = frozenset(column for column, choice in (saved.perColumn or {}).items() if choice.plainCase)
 	try:
-		everything = flowTableSource.measure(handle, live=False, plainCase=plainCase)
+		with stageTimes.stage("measure"):
+			everything = flowTableSource.measure(handle, live=False, plainCase=plainCase)
 	except CallCancelled:
 		# NVDA stopped waiting on the application in the middle of measuring, so what came
 		# back is silence rather than an empty table. Said as such, and not retried here: the
@@ -390,24 +399,25 @@ def buildTheTable(
 	# row is reserved and the plan made again at full height if there are no headings.
 	for spendARowOnHeaders in (True, False) if headers else (False,):
 		bandRows = numRows - 1 if spendARowOnHeaders else numRows
-		plan = flowTable.planFor(
-			measured,
-			numCols,
-			maxRows=saved.rowHeightOr(bmConfig.tableRowHeight()) if maxRows is None else maxRows,
-			overflow=flowTable.TRUNCATE
-			if saved.truncateOr(bmConfig.shouldTruncateTableCells())
-			else flowTable.WRAP,
-			# From the band's height, because what a row costs is only meaningful beside how
-			# many of them there is room for. See `flowTable.targetHeightFor`.
-			targetHeight=flowTable.targetHeightFor(bandRows),
-			pinKey=saved.pinKeyOr(bmConfig.shouldPinKeyColumn()),
-			excluded=excluded,
-			# What the reader decided about individual columns: their own name for one, which
-			# end of it to keep, how much room it may have, where a page begins. Empty for a
-			# table nobody has arranged, which is every table until they do.
-			choices=saved.perColumn,
-			keyColumn=saved.keyColumn or None,
-		)
+		with stageTimes.stage("plan"):
+			plan = flowTable.planFor(
+				measured,
+				numCols,
+				maxRows=saved.rowHeightOr(bmConfig.tableRowHeight()) if maxRows is None else maxRows,
+				overflow=flowTable.TRUNCATE
+				if saved.truncateOr(bmConfig.shouldTruncateTableCells())
+				else flowTable.WRAP,
+				# From the band's height, because what a row costs is only meaningful beside how
+				# many of them there is room for. See `flowTable.targetHeightFor`.
+				targetHeight=flowTable.targetHeightFor(bandRows),
+				pinKey=saved.pinKeyOr(bmConfig.shouldPinKeyColumn()),
+				excluded=excluded,
+				# What the reader decided about individual columns: their own name for one, which
+				# end of it to keep, how much room it may have, where a page begins. Empty for a
+				# table nobody has arranged, which is every table until they do.
+				choices=saved.perColumn,
+				keyColumn=saved.keyColumn or None,
+			)
 		if plan.isEmpty:
 			# **Which of the two happened**, because a plan is empty either when the columns
 			# will not fit the band or when there were no columns to fit. The second is not an
@@ -446,7 +456,8 @@ def buildTheTable(
 			# pinned. A table that declares its headers has not necessarily put them there.
 			pinHeaders=spendARowOnHeaders,
 		)
-		pinned = source.headerBlock() if spendARowOnHeaders else None
+		with stageTimes.stage("header row"):
+			pinned = source.headerBlock() if spendARowOnHeaders else None
 		headers = pinned is not None
 		if headers or not spendARowOnHeaders:
 			break
@@ -470,7 +481,9 @@ def buildTheTable(
 		# Already built, above, since whether it exists is what decided the band's height.
 		control.setPinned(pinned)
 		notes.append("The header row is pinned above the band.")
-	if not _entered(control, source, handle, atRow):
+	with stageTimes.stage("first rows"):
+		entered = _entered(control, source, handle, atRow)
+	if not entered:
 		# **Read, not laid out.** The columns were measured and planned; what failed is a
 		# fetch, which is a moment that has passed rather than a display too narrow. Told the
 		# other way, the reader is sent to the layout designer for a table nothing was wrong
@@ -481,7 +494,8 @@ def buildTheTable(
 		return None
 	if atPage:
 		# Before the caller attaches it, so the reader feels one display rather than two.
-		control.useColumnPage(plan.scrolledTo(atPage))
+		with stageTimes.stage("column page"):
+			control.useColumnPage(plan.scrolledTo(atPage))
 	return control
 
 

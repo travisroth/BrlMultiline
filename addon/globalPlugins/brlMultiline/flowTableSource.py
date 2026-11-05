@@ -17,14 +17,17 @@ API NVDA's control+alt+arrows use, and turns its answers into blocks.
 """
 
 import dataclasses
+import contextlib
 import functools
+import threading
+from collections.abc import Iterator
 from typing import Any
 
 import documentBase
 from braille.regions.base import Region, TextRegion
 from logHandler import log
 
-from . import flowObjectTable
+from . import flowObjectTable, flowTableGecko, stageTimes
 from .flow import BlockId, CallCancelled, FetchResult, SourceBlock
 from .flowSources import FetchBudget
 from .flowTable import SEPARATOR_CELL, Measurement, RowCell, cellPosition, positionParts
@@ -166,6 +169,19 @@ def tableAt(obj) -> TableHandle | None:
 		# twice. See `TableHandle.contentRows`.
 		contentRows=_contentRowsOf(document, numRows),
 	)
+
+
+def describeTable(handle: TableHandle, why: str = "") -> str:
+	""":return: which table this is and what reads it, for a timing report.
+
+	:param handle: the table.
+	:param why: why it is being read again, if it is.
+	"""
+	document = handle.document
+	root = getattr(document, "rootNVDAObject", None)
+	app = getattr(getattr(root, "appModule", None), "appName", "unknown")
+	said = f"{handle!r} read by {type(document).__name__} in {app}"
+	return f"{said}, read again because {why}" if why else said
 
 
 def _contentRowsOf(document, numRows: int) -> int:
@@ -580,8 +596,9 @@ def widthOf(text: str) -> int:
 	if not text:
 		return 0
 	try:
-		region = TextRegion(text)
-		region.update()
+		with stageTimes.stage("text width"):
+			region = TextRegion(text)
+			region.update()
 		return len(region.brailleCells)
 	except Exception:
 		log.debugWarning("Could not measure a piece of text", exc_info=True)
@@ -713,6 +730,48 @@ def withoutCapitals(text: str) -> str:
 	return text.lower()
 
 
+_holding = threading.local()
+"""The table held on this thread, in `held`. A COM pointer must not cross threads. See `tableHeld`."""
+
+
+@contextlib.contextmanager
+def tableHeld(handle: TableHandle) -> Iterator[None]:
+	"""Find a table once for the cells read in this block, where its document allows that.
+
+	For one synchronous read of the table, since a held table is not told if the page changes.
+
+	:param handle: the table.
+	:raises CallCancelled: where NVDA stopped waiting while the table was found.
+	"""
+	held = flowTableGecko.holdTable(handle)
+	if held is None:
+		yield
+		return
+	before = getattr(_holding, "held", None)
+	_holding.held = held
+	try:
+		yield
+	finally:
+		_holding.held = before
+
+
+def _cellInfoAt(handle: TableHandle, row: int, column: int):
+	""":return: where one cell is, from the held table where it can say.
+
+	:param handle: the table.
+	:param row: the row to read.
+	:param column: the column to read.
+	:raises LookupError: where the table has no such cell.
+	"""
+	held = getattr(_holding, "held", None)
+	if held is not None and held.holds(handle):
+		try:
+			return held.cellAt(row, column)
+		except flowTableGecko.HeldTableFailed:
+			log.debug(f"The held table could not read row {row} column {column}", exc_info=True)
+	return handle.document._getTableCellAt(handle.tableID, handle.document.selection, row, column)
+
+
 def cellRegion(
 	handle: TableHandle,
 	row: int,
@@ -733,7 +792,8 @@ def cellRegion(
 		the text becomes a region and is translated, so every re-read applies it again.
 	"""
 	try:
-		info = handle.document._getTableCellAt(handle.tableID, handle.document.selection, row, column)
+		with stageTimes.stage("cell lookup"):
+			info = _cellInfoAt(handle, row, column)
 	except CallCancelled:
 		# **Not "there is no cell here".** A cancelled call is NVDA saying it has stopped
 		# waiting, and swallowing it here made a whole worksheet measure empty. It goes up to
@@ -747,8 +807,10 @@ def cellRegion(
 		return None
 	if info is None:
 		return None
-	region = TableCellRegion(handle.document, info, live=live, plainCase=plainCase)
-	region.update()
+	with stageTimes.stage("cell text"):
+		region = TableCellRegion(handle.document, info, live=live, plainCase=plainCase)
+	with stageTimes.stage("cell translate"):
+		region.update()
 	return region
 
 
@@ -788,7 +850,8 @@ def measure(
 	:return: one measurement per column of the table. A column found empty is only
 		tentatively empty; see `cellHasContent`.
 	"""
-	showing = columnsShowingIn(handle)
+	with stageTimes.stage("visible columns"):
+		showing = columnsShowingIn(handle)
 	columns = [
 		column
 		for column in range(1, handle.numCols + 1)
@@ -833,22 +896,26 @@ def measure(
 	# question below never runs; where it cannot, and rows are being read in bulk so there
 	# are no cells to ask, one cell per column is read now instead of one per cell later.
 	# See `columnHeadersOf` and `flowObjectTable.Sheet.columnHeaders`.
-	stated = columnHeadersOf(handle, 1, handle.numCols)
-	if stated is None and _offeredBy(handle, "rowText") is not None:
-		# A grid read in bulk never reaches the per-cell header question below, so its headers
-		# are asked here. `{}` means none are declared; None means it could not say. See
-		# `flowObjectTable.Sheet.columnHeaders`.
-		stated = declaredHeaders(handle, columns)
+	with stageTimes.stage("column headers"):
+		stated = columnHeadersOf(handle, 1, handle.numCols)
+		if stated is None and _offeredBy(handle, "rowText") is not None:
+			# A grid read in bulk never reaches the per-cell header question below, so its headers
+			# are asked here. `{}` means none are declared; None means it could not say. See
+			# `flowObjectTable.Sheet.columnHeaders`.
+			stated = declaredHeaders(handle, columns)
 	for column, said in (stated or {}).items():
 		if said and column in labels:
 			labels[column] = said
 			headers[column] = headerWidth(said)
 			declared.add(column)
-	for row in _sampleRows(handle, sample):
+	with stageTimes.stage("sample rows"):
+		rows = _sampleRows(handle, sample)
+	for row in rows:
 		# One read for the whole row where the document offers it, and the ordinary cell at a
 		# time where it does not. Only the source of the text differs; everything below this
 		# is the same measurement either way. See `rowTextOf`.
-		saidRow = rowTextOf(handle, row, 1, handle.numCols)
+		with stageTimes.stage("row text"):
+			saidRow = rowTextOf(handle, row, 1, handle.numCols)
 		for column in columns:
 			info = None
 			if saidRow is not None:
@@ -875,7 +942,8 @@ def measure(
 				# Asked of up to `HEADER_TRIES` cells, stopping at the first answer, as in
 				# `declaredHeaders`.
 				asked[column] += 1
-				said = declaredHeader(info)
+				with stageTimes.stage("declared header"):
+					said = declaredHeader(info)
 				if said:
 					labels[column] = said
 					headers[column] = headerWidth(said)
@@ -1098,6 +1166,10 @@ class TableFlowSource:
 	def column(self) -> int:
 		""":return: the column the reader is on, as this source last knew it."""
 		return self.handle.col
+
+	def held(self):
+		""":return: a block for reading many cells at once. See `tableHeld`."""
+		return tableHeld(self.handle)
 
 	def setColumns(self, columns) -> bool:
 		"""Say which columns to read from now on.

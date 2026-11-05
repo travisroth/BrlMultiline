@@ -624,6 +624,41 @@ exist and be applied by hand before it is worth putting a dialog on top of it. T
 record is what an application module supplies, so the dialog and the app module API are one
 mechanism, not two.
 
+## Table timing
+
+`stageTimes` reports where the time went in the operations that call into applications on
+NVDA's main thread: `display rebuild`, `table show` and `column page`. It is off, so nothing is
+logged and every call passes through. To use it on the next slow thing, set it in NVDA's Python
+console, with no restart, or set `enabled` to True in the module for a whole run:
+
+    import globalPlugins.brlMultiline.stageTimes as t; t.enabled = True
+
+To time something new, wrap it in `stageTimes.operation("name")`, as a block or a decorator, and
+wrap its steps in `stageTimes.stage("name")`. `timedMethod` does the same for a step inside
+NVDA's code.
+
+While on, an operation of a quarter of a second or more is logged at info, as
+`BrlMultiline timing:`, so a stall explains itself at the default log level. A quicker one that
+did any work is logged at debug.
+
+Each line is a stage path, such as `measure/cell lookup/table lookup`, with its calls, total
+seconds, slowest call and how many raised. A child's time is included in its parent's, so the
+lines do not add up to the total. `table lookup` is NVDA's own `getNVDAObjectFromIdentifier`,
+shadowed for the length of a build because it has no stage of its own; a document without that
+method has no such line. The fill that runs after a table is attached is not timed.
+
+`flowTableGecko` holds a table for one build, so its cells do not each find it again. It serves
+only documents that inherit `Gecko_ia2._getTableCellAt`, which covers Firefox and Chromium, and
+`HeldTable.cellAt` is that method with the finding moved out, so a change to it in NVDA has to be
+copied. A cell the held table cannot read is read the ordinary way; a hidden cell or a cancelled
+call is not tried again. A held table adds `cell at`, `cell object`, `hidden check` and `cell info`
+under `cell lookup`. A page of columns is held too, for a pin as well as the band. Other cells
+read after the build, and a pin's own build, are read the ordinary way.
+
+These numbers come first in the work on the cost of `measure`: they decide how much a table
+fetcher, a budget or a cache is worth, and whether the focus walk in `rebuildBuffer` matters more
+than any of them.
+
 ## Non-goals
 
 - Rewriting `flowObjects.py`. The adapter registry is the right shape and grows rather than

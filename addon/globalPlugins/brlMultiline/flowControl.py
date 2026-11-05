@@ -784,25 +784,26 @@ class FlowController(PanelOwner):
 		"""
 		if plan.at == self.renderer.columnPlan.at:
 			return False
-		setColumns = getattr(self.source, "setColumns", None)
-		if setColumns is not None:
-			setColumns(tuple(place.column.index for place in plan.placements()))
-		changed = self.setColumnPlan(plan, reread=True)
-		if self.pinnedBlock is not None:
-			header = getattr(self.source, "headerBlock", None)
-			if header is not None:
-				try:
-					said = header()
-				except Exception:
-					log.debugWarning("Could not read the header for a new page", exc_info=True)
-					said = None
-				if said is not None:
-					self.setPinned(said)
-				else:
-					# The new page's columns may have no names. The old header row stands,
-					# since clearing it would leave nothing to ask for it again.
-					log.debugWarning("No header row for this page of columns, so the last one stands")
-		return changed
+		with getattr(self.source, "held", contextlib.nullcontext)():
+			setColumns = getattr(self.source, "setColumns", None)
+			if setColumns is not None:
+				setColumns(tuple(place.column.index for place in plan.placements()))
+			changed = self.setColumnPlan(plan, reread=True)
+			if self.pinnedBlock is not None:
+				header = getattr(self.source, "headerBlock", None)
+				if header is not None:
+					try:
+						said = header()
+					except Exception:
+						log.debugWarning("Could not read the header for a new page", exc_info=True)
+						said = None
+					if said is not None:
+						self.setPinned(said)
+					else:
+						# The new page's columns may have no names. The old header row stands,
+						# since clearing it would leave nothing to ask for it again.
+						log.debugWarning("No header row for this page of columns, so the last one stands")
+			return changed
 
 	def setColumnPlan(self, plan, reread: bool = False) -> bool:
 		"""Draw the band's table again with a different column layout.

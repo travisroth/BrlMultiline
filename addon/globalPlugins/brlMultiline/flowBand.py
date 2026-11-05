@@ -35,6 +35,7 @@ from . import (
 	flowTableLayouts,
 	flowTableSource,
 	patches,
+	stageTimes,
 )
 from .flow import CallCancelled
 from .flowControl import FlowController
@@ -195,6 +196,9 @@ class FlowBand(PanelOwner):
 
 		self._layoutOffered: Any = None
 		"""The table a saved layout was last offered for, so it is offered once."""
+
+		self._rebuildReason = ""
+		"""Why the next build is a rebuild, for its timing report. See `_rebuildBecause`."""
 
 		self._keepOnRebuild = True
 		"""Whether the next rebuild leaves the reader where they were reading. Set with the
@@ -1316,6 +1320,7 @@ class FlowBand(PanelOwner):
 			rebuild they caused by standing somewhere, which is theirs to be shown.
 		"""
 		self._keepOnRebuild = keepTheWindow
+		self._rebuildReason = why
 		try:
 			plan = self.columnPlan()
 			source = getattr(self.controller, "source", None)
@@ -1401,7 +1406,8 @@ class FlowBand(PanelOwner):
 		:param plan: the layout, on the page wanted.
 		:return: whether the page changed.
 		"""
-		return self.controller.useColumnPage(plan)
+		with stageTimes.operation("column page"):
+			return self.controller.useColumnPage(plan)
 
 	def columnPlan(self):
 		""":return: the table layout on the band, or None if it is not showing a table."""
@@ -1427,7 +1433,8 @@ class FlowBand(PanelOwner):
 		See `_showTheTable`, which is the work, and `flow.CallCancelled`.
 		"""
 		try:
-			return self._showTheTable(obj, segment, force=force)
+			with stageTimes.operation("table show"):
+				return self._showTheTable(obj, segment, force=force)
 		except CallCancelled:
 			if self.tableNotes is None:
 				self.tableNotes = []
@@ -1457,7 +1464,8 @@ class FlowBand(PanelOwner):
 		"""Where to put the band once it is built: what a rebuild asked for, or, where the
 		table has changed under the reader below, the page of columns they had."""
 		if self.tableWanted is None:
-			handle, layout = self._savedLayoutHere(obj)
+			with stageTimes.stage("find table"):
+				handle, layout = self._savedLayoutHere(obj)
 			if handle is None:
 				return None
 			self.tableWanted = handle.key
@@ -1487,24 +1495,30 @@ class FlowBand(PanelOwner):
 		# what the reader needs when they are told the columns did not happen. See
 		# `_reportNoLayout`.
 		self.tableNotes = []
-		control = buildTableController(
-			obj=obj,
-			numRows=numRows,
-			numCols=numCols,
-			handler=self._handler(),
-			live=True,
-			generation=next(_generations),
-			notes=self.tableNotes,
-			handle=handle,
-			# What the reader has arranged for this table, then what they saved for it, then
-			# nothing — which is the measurement and the settings, as for any other table.
-			layout=self._layoutToReadWith(handle, layout),
-			# Where the reader had the band, when this is a rebuild rather than an arrival.
-			# Applied inside the build, so what reaches the display is their own window and
-			# not page one first. See `_whereTheyAreReading`.
-			atPage=readAgainAt[0] if readAgainAt else 0,
-			atRow=readAgainAt[1] if readAgainAt else None,
-		)
+		why, self._rebuildReason = self._rebuildReason, ""
+		stageTimes.note(lambda: flowTableSource.describeTable(handle, why))
+		with (
+			stageTimes.timedMethod(handle.document, "getNVDAObjectFromIdentifier", "table lookup"),
+			flowTableSource.tableHeld(handle),
+		):
+			control = buildTableController(
+				obj=obj,
+				numRows=numRows,
+				numCols=numCols,
+				handler=self._handler(),
+				live=True,
+				generation=next(_generations),
+				notes=self.tableNotes,
+				handle=handle,
+				# What the reader has arranged for this table, then what they saved for it, then
+				# nothing — which is the measurement and the settings, as for any other table.
+				layout=self._layoutToReadWith(handle, layout),
+				# Where the reader had the band, when this is a rebuild rather than an arrival.
+				# Applied inside the build, so what reaches the display is their own window and
+				# not page one first. See `_whereTheyAreReading`.
+				atPage=readAgainAt[0] if readAgainAt else 0,
+				atRow=readAgainAt[1] if readAgainAt else None,
+			)
 		if control is None:
 			# Recognised a moment ago and not now, or no column layout fits this band. Reading
 			# order is a good answer to both, so the request is dropped rather than held on to
@@ -1513,7 +1527,8 @@ class FlowBand(PanelOwner):
 			return None
 		self.controller = control
 		self.obj = obj
-		self._attach(segment, control)
+		with stageTimes.stage("attach"):
+			self._attach(segment, control)
 		return True
 
 	def _layoutToReadWith(self, handle, offered):
@@ -1545,7 +1560,8 @@ class FlowBand(PanelOwner):
 		handle = flowTableSource.tableAt(obj)
 		if handle is None:
 			return (None, None)
-		layout = flowTableLayouts.layoutFor(handle, follow=follow)
+		with flowTableSource.tableHeld(handle):
+			layout = flowTableLayouts.layoutFor(handle, follow=follow)
 		# A layout saved for how the table's headers are spoken asks for nothing on the display.
 		# See `flowTableLayouts.TableLayout.speechOnly`.
 		return (handle, layout) if layout is not None and layout.laysOut else (None, None)

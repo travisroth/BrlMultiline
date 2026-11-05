@@ -45,7 +45,7 @@ from . import tableHeaderSpeech
 from . import userBrailleTable
 from . import container as containerModule, monitorRouting, pinPlaces, pinQuickNav
 from .container import DisplayContainer
-from . import chartSource, glyphFlow, glyphs, graphicsMode
+from . import chartSource, glyphFlow, glyphs, graphicsMode, stageTimes
 from . import appLayout
 from .appLayoutHost import AppLayoutHost
 from . import image as imageFigure
@@ -671,6 +671,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._activePanels = [panel for panel in self._activePanels if panel in kept]
 		return view
 
+	@stageTimes.operation("display rebuild")
 	def rebuildBuffer(self) -> None:
 		"""Build the container for the connected display and install it.
 
@@ -703,13 +704,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if wasShowingMainBuffer:
 			handler.buffer = container
 		self._installMessageBuffer(handler, container)
-		self._refreshDisplay()
+		with stageTimes.stage("display refresh"):
+			self._refreshDisplay()
 		# After the display has been redrawn from the focus, so that a pinned object is
 		# written over the fresh layout rather than under it.
-		self.refreshMonitors()
-		self._carryOverFlow(container)
-		self._carryOverGraphics()
-		self._applyFlow()
+		with stageTimes.stage("pins"):
+			self.refreshMonitors()
+		with stageTimes.stage("carry over"):
+			self._carryOverFlow(container)
+			self._carryOverGraphics()
+		with stageTimes.stage("apply flow"):
+			self._applyFlow()
 
 	def _applyFlow(self) -> None:
 		"""Claim or give back the flow band, following the setting for this display and profile.
