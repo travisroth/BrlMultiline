@@ -1341,12 +1341,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("No object to monitor"))
 			return
 		monitor = ObjectMonitor(obj, segment.key)
-		# Pinning a table the reader is already reading in columns pins it in columns. Asked
-		# of the request rather than of the band, because a one row display has no band and
-		# that is exactly the arrangement this exists for: ask for columns on the Focus, pin
-		# the table to the Monarch, read it there. Going through the band meant the answer
-		# was always no in the one case it was built for.
-		monitor.wantsColumns = wantsColumns(self.tableRequest.wanted, obj)
+		self._layOutPin(monitor, obj)
 		self._monitors[segment.key] = monitor
 		# Through `refreshMonitors` rather than straight to the monitor, so that pinning
 		# while the display is showing speech registers the pin without drawing it.
@@ -1509,7 +1504,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("That place is no longer on the display"))
 			return False
 		monitor = ObjectMonitor(obj, pin.key)
-		monitor.wantsColumns = wantsColumns(self.tableRequest.wanted, obj)
+		self._layOutPin(monitor, obj)
 		self._monitors[pin.key] = monitor
 		self.refreshMonitors(reveal=pin.key)
 		said = [
@@ -1805,6 +1800,38 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.debugWarning("Could not speak a message about the display", exc_info=True)
 			ui.message(text)
 
+	def _layOutPin(self, monitor: ObjectMonitor, obj) -> None:
+		"""Say whether a new pin reads its table in columns, and with what the reader arranged.
+
+		Asked of the request rather than of the band, because a one row display has no band and
+		asking for columns on the Focus and pinning to the Monarch is what this exists for.
+
+		:param monitor: the new pin.
+		:param obj: what was pinned.
+		"""
+		monitor.wantsColumns = wantsColumns(self.tableRequest.wanted, obj) or self._hasSavedLayout(obj)
+		monitor.arrangeFrom(self.tableRequest)
+
+	def _hasSavedLayout(self, obj) -> bool:
+		""":return: whether a table has a saved layout to lay it out, which the reader has not refused.
+
+		A saved layout applies itself on the band, and a display with no band never asks.
+
+		:param obj: what was pinned.
+		"""
+		from . import flowTableLayouts
+		from .flowTableSource import tableAt
+
+		if not flowTableLayouts.stored() or wantsColumns(self.tableRequest.refused, obj):
+			return False
+		try:
+			handle = tableAt(obj)
+			layout = flowTableLayouts.layoutFor(handle, follow=False) if handle is not None else None
+		except Exception:
+			log.debugWarning("Could not look for a saved layout for a pin", exc_info=True)
+			return False
+		return layout is not None and layout.laysOut
+
 	def layOutPinnedTables(self, wanted: bool, obj) -> int:
 		"""Show or stop showing the pins on one table in columns.
 
@@ -1831,6 +1858,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if monitor.wantsColumns == wanted:
 				continue
 			monitor.wantsColumns = wanted
+			monitor.arrangeFrom(self.tableRequest)
 			changed += 1
 		if changed:
 			self.refreshMonitors()

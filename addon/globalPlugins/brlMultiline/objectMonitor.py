@@ -125,6 +125,9 @@ class ObjectMonitor:
 		band forgets its request when the reader leaves the table.
 		"""
 
+		self._arranged: tuple | None = None
+		"""The table a layout was arranged for and the layout, where it was not saved. See `arrangeFrom`."""
+
 		self._builtFor: tuple[int, int] | None = None
 		"""The segment size the controller was built for, since a rebuild may change it."""
 
@@ -141,6 +144,14 @@ class ObjectMonitor:
 		not that this add-on stopped asking.
 		"""
 		log.debug(f"Monitoring {self.name!r} ({self.obj!r}) in segment {segmentKey!r}")
+
+	def arrangeFrom(self, request) -> None:
+		"""Keep what the reader has arranged for a table, which the request forgets when they leave.
+
+		:param request: the plugin's `flowTableSource.TableRequest`.
+		"""
+		layout = request.layout
+		self._arranged = None if layout is None else (request.wanted, layout)
 
 	def moveTo(self, segmentKey: str) -> None:
 		"""Show this pin in a different segment from now on.
@@ -330,7 +341,7 @@ class ObjectMonitor:
 		:param size: the segment's rows and columns.
 		:return: the controller, or None if there is nothing here to read.
 		"""
-		from .flowBuild import buildController, buildTableController
+		from .flowBuild import buildController
 
 		shape = dict(
 			numRows=size[0],
@@ -341,7 +352,7 @@ class ObjectMonitor:
 		)
 		if self.wantsColumns:
 			try:
-				control = buildTableController(obj=self.pinned, **shape)
+				control = self._buildColumns(shape)
 			except Exception:
 				log.debugWarning(f"Could not read {self.name!r} in columns", exc_info=True)
 				control = None
@@ -352,6 +363,39 @@ class ObjectMonitor:
 		except Exception:
 			log.debugWarning(f"Could not read {self.name!r} as a flow", exc_info=True)
 			return None
+
+	def _buildColumns(self, shape: dict):
+		"""Build this pin's table in columns, the way the reader has laid that table out.
+
+		:param shape: what `buildTableController` needs besides the table.
+		:return: the controller, or None if the pin is not in a table that can be laid out.
+		"""
+		from . import flowTableSource
+		from .flowBuild import buildTableController
+
+		handle = flowTableSource.tableAt(self.pinned)
+		if handle is None:
+			return None
+		with flowTableSource.tableHeld(handle):
+			return buildTableController(
+				obj=self.pinned,
+				handle=handle,
+				layout=self._layoutFor(handle),
+				**shape,
+			)
+
+	def _layoutFor(self, handle):
+		""":return: the layout to read a table with: what was arranged for it, then what was saved.
+
+		In the order the band uses. See `FlowBand._layoutToReadWith`.
+
+		:param handle: the table.
+		"""
+		from . import flowTableLayouts, flowTableSource
+
+		if self._arranged is not None and flowTableSource.sameTable(self._arranged[0], handle.key):
+			return self._arranged[1]
+		return flowTableLayouts.layoutFor(handle)
 
 	def columnPlan(self):
 		""":return: the table layout this pin is showing, or None if it is not showing one.

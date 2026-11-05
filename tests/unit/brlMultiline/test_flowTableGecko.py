@@ -13,8 +13,6 @@ import types
 import unittest
 from unittest import mock
 
-from comtypes import COMError
-
 from ._stubs import FakeTableDocument, installStubs
 
 installStubs()
@@ -29,6 +27,10 @@ from brlMultiline.flowTableSource import (  # noqa: E402
 	cellRegion,
 	tableHeld,
 )
+
+
+COMError = flowTableGecko.COMError
+"""The class the module catches, which is whichever stand-in was installed when it was imported."""
 
 
 class FakeIA2Cell:

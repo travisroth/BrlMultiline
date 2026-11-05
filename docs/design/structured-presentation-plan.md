@@ -349,6 +349,10 @@ are not re-argued.
     the pin is made — `FlowBand.wantsColumnsFor` — and the command carries a change of mind to
     the pins on the same table, so nothing has to be unpinned to alter it.
 
+    A pin reads its table with the layout the band would use: what was arranged for it, then
+    what was saved. A table with a saved layout is pinned in columns even with no request,
+    because a display with no band never made one, unless the reader has just refused it.
+
     The column layout is tried and falls back rather than failing. What was asked for was
     *this table* in columns, and a table that will not lay out is still worth reading in
     order; the same fallback covers a pin outliving its table, where insisting on columns

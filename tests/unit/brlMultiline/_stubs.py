@@ -185,7 +185,7 @@ def setBandConfig(displayKey: str, **values) -> None:
 			"segmentSizes": [],
 			"focusSegment": -1,
 			"reverseScrollBtns": False,
-				"flowEnabled": False,
+			"flowEnabled": False,
 			"flowBrowseMode": True,
 			"flowObjects": False,
 			"flowEditableText": False,
@@ -295,6 +295,10 @@ class FakeLog:
 
 
 log = FakeLog()
+
+
+class FakeCOMError(Exception):
+	"""Stands for `comtypes.COMError`, taking its three arguments."""
 
 
 class _AutoPropertyMeta(type):
@@ -3161,6 +3165,7 @@ def installStubs() -> None:
 		return
 	_module("logHandler", log=log)
 	_module("watchdog", isAttemptingRecovery=False)
+	_module("comtypes", COMError=FakeCOMError, BSTR=str)
 	_module("colors", RGB=FakeRGB)
 	# NVDA's own, and the real class rather than the add-on's fallback for it: a test that
 	# raises this is testing what the watchdog does to a COM call, and it only tests it if
