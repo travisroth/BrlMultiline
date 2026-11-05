@@ -189,6 +189,12 @@ released and you're told so. Pinning something new shows them again first.
 What you pinned stays on that display while you go back to work on the other one. To pan it,
 use that display's own panning keys, or assign keys to "Navigation: Scrolls segment 0 of the
 second display forward" and "back."
+
+To give a display's own keys its own segments, assign them to "Navigation: Scrolls segment 0 of
+this display forward" and "back," and the same for segment 1 and up. These count from 0 on the
+display the key is on, whatever else is connected, so a key on the second display goes on working
+when the first is unplugged. "Navigation: Scrolls segment 0 forward" is different: it counts
+across all the combined displays, so segment 0 is the top display's first.
 (Note: by default a display's panning keys scroll the first segment on the display. To scroll subsequent segments on a display define gestures to scroll those segments.)
 A pinned chat, list, or menu needs only one row: each item is one line, and panning moves to
 the next item. That makes a single-line display a good chat monitor. When you are at the end

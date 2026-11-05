@@ -229,6 +229,51 @@ class TestTwoDisplaysAtOnce(PanningTestCase):
 		self.assertEqual(self.sources(), [MONARCH, None])
 
 
+class TestASegmentOfThePressedDisplay(PanningTestCase):
+	"""Counting from 0 on the display the key is on, not across the composite."""
+
+	FOCUS_TWICE = [
+		*COMPOSITE_RECTS[:2],
+		SegmentRect(row=8, col=0, numRows=1, numCols=40),
+		SegmentRect(row=8, col=40, numRows=1, numCols=40),
+	]
+
+	def on(self, source, ordinal):
+		container = fakeContainer(0, self.FOCUS_TWICE)
+		return panning.segmentOnPressedDisplay(StubGesture(source), container, ordinal)
+
+	def test_theFirstSegmentOfTheLowerDisplayIsItsOwn(self):
+		self.assertEqual(self.on(FOCUS, 0), 2)
+
+	def test_theSecondSegmentOfTheLowerDisplayIsItsOwn(self):
+		self.assertEqual(self.on(FOCUS, 1), 3)
+
+	def test_theUpperDisplayCountsItsOwnToo(self):
+		self.assertEqual(self.on(MONARCH, 1), 1)
+
+	def test_aSegmentTheDisplayHasNotGotIsNone(self):
+		self.assertIsNone(self.on(FOCUS, 2))
+
+	def test_aKeyOnNoDisplayMeansTheDisplayHoldingTheFocus(self):
+		container = fakeContainer(3, self.FOCUS_TWICE)
+		self.assertEqual(panning.segmentOnPressedDisplay(None, container, 0), 2)
+
+	def test_withNoDisplayHoldingTheFocusThereIsNoSegment(self):
+		container = fakeContainer(9, self.FOCUS_TWICE)
+		self.assertIsNone(panning.segmentOnPressedDisplay(None, container, 0))
+
+	def test_aLoneDisplayCountsItsOwnSegments(self):
+		"""The other display unplugged, which is what a binding here has to survive."""
+		self.handler.display = object()
+		rects = [
+			SegmentRect(row=0, col=0, numRows=1, numCols=40),
+			SegmentRect(row=0, col=40, numRows=1, numCols=40),
+		]
+		container = fakeContainer(0, rects)
+		self.assertEqual(panning.segmentOnPressedDisplay(StubGesture(FOCUS), container, 1), 1)
+		self.assertIsNone(panning.segmentOnPressedDisplay(StubGesture(FOCUS), container, 2))
+
+
 class TestWhichSegment(PanningTestCase):
 	"""A display's keys drive that display."""
 

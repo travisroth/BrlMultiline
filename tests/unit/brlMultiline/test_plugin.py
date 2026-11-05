@@ -266,7 +266,9 @@ class TestDrawingThePictureHere(unittest.TestCase):
 		self.mode.refuseReplace = False
 		self.plugin.script_pictureStyle(None)
 		self.assertEqual(
-			self.plugin.pictures.style, imageFigure.LINES, "the cycle resumes from what was shown",
+			self.plugin.pictures.style,
+			imageFigure.LINES,
+			"the cycle resumes from what was shown",
 		)
 
 	def test_aStyleThePictureWillNotDrawInLeavesTheStyleAlone(self):
@@ -580,7 +582,13 @@ class TestFollowingAnApplicationsChart(unittest.TestCase):
 		def newBuffer(self, width, height):
 			# The Monarch driver's own buffer, so a chart is really drawn.
 			driver = os.path.join(
-				os.path.dirname(__file__), "..", "..", "..", "addon", "brailleDisplayDrivers", "brlMultilineMonarch",
+				os.path.dirname(__file__),
+				"..",
+				"..",
+				"..",
+				"addon",
+				"brailleDisplayDrivers",
+				"brlMultilineMonarch",
 			)
 			if driver not in sys.path:
 				sys.path.insert(0, driver)
@@ -893,7 +901,10 @@ class TestMonitorCarryOver(PluginTestCase):
 		self.pin(0)
 		self.plugin.activatePanel(
 			GridPanel(
-				"table", SegmentRect(2, 0, 6, MONARCH_COLS), rowBands=[2, 2, 2], colWidths=[10, 10, 10],
+				"table",
+				SegmentRect(2, 0, 6, MONARCH_COLS),
+				rowBands=[2, 2, 2],
+				colWidths=[10, 10, 10],
 			),
 		)
 		self.assertEqual(self.plugin.monitoredKeys, {"display.0"})
@@ -1964,6 +1975,40 @@ class TestDisplayRelativeCommands(PluginTestCase):
 		self.plugin.script_scrollDisplay1Segment0Forward(None)
 		self.assertEqual(self.container.segments[2].scrolled, "forward")
 
+	def pressOnTheFocus(self, scriptName, **config):
+		""":return: what a key on the lower display, with two segments on it, asked to scroll."""
+		from .test_panning import StubGesture
+
+		setBandConfig("freedomScientific_1x80", segmentCount=2, **config)
+		self.plugin.rebuildBuffer()
+		scrolls = []
+		self.container.scrollForward = lambda number: scrolls.append(("forward", number))
+		self.container.scrollBack = lambda number: scrolls.append(("back", number))
+		getattr(self.plugin, scriptName)(StubGesture("freedomScientific"))
+		return scrolls
+
+	def test_aThisDisplayScriptScrollsTheDisplayItsKeyIsOn(self):
+		scrolls = self.pressOnTheFocus("script_scrollThisDisplaySegment0Forward")
+		self.assertEqual(scrolls, [("forward", 2)])
+
+	def test_itsSecondSegmentIsReached(self):
+		scrolls = self.pressOnTheFocus("script_scrollThisDisplaySegment1Back")
+		self.assertEqual(scrolls, [("back", 3)])
+
+	def test_theCountingScriptStillCountsAcrossTheDisplays(self):
+		"""A key on one display reaching another is a use of its own."""
+		scrolls = self.pressOnTheFocus("script_scrollSegment0Forward")
+		self.assertEqual(scrolls, [("forward", 0)])
+
+	def test_aThisDisplaySegmentThatIsNotThereIsReported(self):
+		scrolls = self.pressOnTheFocus("script_scrollThisDisplaySegment3Forward")
+		self.assertEqual(scrolls, [])
+		self.assertTrue(any("this display" in message for message in spokenMessages), spokenMessages)
+
+	def test_thePressedDisplaysReversalApplies(self):
+		scrolls = self.pressOnTheFocus("script_scrollThisDisplaySegment0Forward", reverseScrollBtns=True)
+		self.assertEqual(scrolls, [("back", 2)])
+
 	def test_aMonitorScriptPinsTheRightSegment(self):
 		import api
 
@@ -2862,7 +2907,8 @@ class TestTwoDisplays(FocusTrackingDisplayTestCase):
 	def test_thereAreTwoToChooseBetween(self):
 		targets = self.plugin.focusMoves.targets()
 		self.assertEqual(
-			[target.driverName for target in targets], ["hidBrailleStandard", "freedomScientific"],
+			[target.driverName for target in targets],
+			["hidBrailleStandard", "freedomScientific"],
 		)
 		self.assertEqual([target.segments for target in targets], [[0, 1], [2]])
 
@@ -3299,7 +3345,9 @@ class TestTheDialogAboutDisplacedPins(FocusTrackingDisplayTestCase):
 		displaced = ["device.hidBrailleStandard.0", "device.hidBrailleStandard.1"]
 		dialogAnswers.answer = ID_OK
 		dialogAnswers.select = [1]
-		self.plugin.focusMoves.askAboutDisplacedPins(self.monarch(), 0, displaced, ["device.freedomScientific.0"])
+		self.plugin.focusMoves.askAboutDisplacedPins(
+			self.monarch(), 0, displaced, ["device.freedomScientific.0"],
+		)
 		callAfterQueue.flush()
 		self.assertEqual(dialogAnswers.shown[0].kind, "multi")
 		self.assertIn("device.freedomScientific.0", self.plugin._monitors)
@@ -3361,7 +3409,9 @@ class TestMoreThanTwoDisplays(FocusTrackingDisplayTestCase):
 	def setUp(self):
 		super().setUp()
 		self.asked = []
-		self.plugin.focusMoves.chooseDisplay = lambda targets, position: self.asked.append((targets, position))
+		self.plugin.focusMoves.chooseDisplay = lambda targets, position: self.asked.append(
+			(targets, position),
+		)
 
 	def test_theUserIsAsked(self):
 		self.press()
@@ -3758,19 +3808,26 @@ class TestAppLayoutsOnCombinedDisplays(PluginTestCase):
 		self.assertEqual(appModule.asked[-1].columns, MONARCH_COLS)
 		self.assertTrue(any(line.startswith("Displays: ") for line in lines), lines)
 		# The messages on the whole Monarch, the focus on the Focus 80.
-		self.assertTrue(any(f"rows 0 to {MONARCH_ROWS - 1}" in line and "'Messages'" in line for line in lines), lines)
+		self.assertTrue(
+			any(f"rows 0 to {MONARCH_ROWS - 1}" in line and "'Messages'" in line for line in lines), lines,
+		)
 		self.assertTrue(any(f"row {MONARCH_ROWS}, cells 0 to 79" in line for line in lines), lines)
 
 	def test_itIsShownWithEachSegmentOnItsOwnDisplay(self):
 		"""Six rows and the rest would straddle the two; the messages take the whole Monarch
 		and the focus is on the Focus 80, at its full width."""
 		CONFIG["appLayouts"] = True
-		answer = {"name": "chat", "segments": [{"size": 6, "show": FakeNavigatorObject("Messages")}, {"show": "focus"}]}
+		answer = {
+			"name": "chat",
+			"segments": [{"size": 6, "show": FakeNavigatorObject("Messages")}, {"show": "focus"}],
+		}
 		focus = focusIn(LayoutAppModule(answer=answer))
 		self.plugin.event_gainFocus(focus, lambda: None)
 		callLaterQueue.fire()
 		self.assertTrue(self.plugin.appLayouts.isUp)
-		self.assertEqual(self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS))
+		self.assertEqual(
+			self.container.segmentForKey("appLayout.0").rect, SegmentRect(0, 0, MONARCH_ROWS, MONARCH_COLS),
+		)
 		self.assertEqual(self.container.focusSegment.rect, SegmentRect(MONARCH_ROWS, 0, 1, 80))
 
 
@@ -4763,7 +4820,10 @@ class TestAppLayoutReviewBdd4c49(PluginTestCase):
 				clock[0] += 0.04
 			return self.messages
 
-		self.app.answer = {"name": "focus then pane", "segments": [{"show": "focus"}, {"size": 2, "show": pane}]}
+		self.app.answer = {
+			"name": "focus then pane",
+			"segments": [{"show": "focus"}, {"size": 2, "show": pane}],
+		}
 		self.show()
 		self.host.liveMonitors()["appLayout.1"].refresh = lambda reveal=False: reads.append(True)
 		self.host._resolvedAt = 0.0

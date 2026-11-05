@@ -174,6 +174,11 @@ Indices have not gone away. `flatten()` still numbers segments in display order,
 alongside them, not instead of them — there is no user-visible name for a segment, and
 inventing one would be worse than counting.
 
+Three families of command name a segment to scroll. `scrollSegment3Forward` counts across the
+whole composite, so a key on one display can reach another. `scrollDisplay1Segment0Forward` names
+the display. `scrollThisDisplaySegment0Forward` takes the display from the key pressed, through
+`panning.segmentOnPressedDisplay`, so a binding survives the other display being unplugged.
+
 `getSegmentNumberForRegion` accepts either, so a region targeted the old way still works.
 
 ### A view must have a focus segment

@@ -1994,6 +1994,25 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 		return number
 
+	def pressedDisplaySegmentNumber(self, gesture, segmentOrdinal: int) -> int | None:
+		"""Find a segment on the display a key is on, reporting it if there is no such segment.
+
+		:param gesture: the gesture that asked.
+		:param segmentOrdinal: which of that display's segments, counting from 0.
+		:return: the segment's index, or None if there is no such segment now.
+		"""
+		container = self.container
+		if container is None:
+			# Translators: reported when a command needs segments but none are configured.
+			ui.message(_("BrlMultiline is not active"))
+			return None
+		number = panning.segmentOnPressedDisplay(gesture, container, segmentOrdinal)
+		if number is None:
+			# Translators: reported when a command names a segment that the display its key is
+			# on does not have. The placeholder is a segment number.
+			ui.message(_("No segment {segment} on this display").format(segment=segmentOrdinal))
+		return number
+
 	# Which of several displays follows the focus
 
 	# Scripts
@@ -3580,6 +3599,32 @@ def _makeDisplayScrollScript(displayOrdinal: int, segmentOrdinal: int, forward: 
 	return scrollScript
 
 
+def _makeThisDisplayScrollScript(segmentOrdinal: int, forward: bool):
+	"""Build one scrolling script for a segment of the display its key is on.
+
+	So one binding means the same segment of its own display whatever else is connected.
+	"""
+
+	def scrollScript(self, gesture):
+		number = self.pressedDisplaySegmentNumber(gesture, segmentOrdinal)
+		if number is not None:
+			self.scrollSegment(number, forward, gesture)
+
+	template = (
+		# Translators: input help message for a command. The placeholder is a segment number,
+		# counting from 0 on the display the key is on.
+		_("Navigation: Scrolls segment {segment} of this display forward")
+		if forward
+		# Translators: input help message for a command. The placeholder is a segment number,
+		# counting from 0 on the display the key is on.
+		else _("Navigation: Scrolls segment {segment} of this display back")
+	)
+	scrollScript.__doc__ = template.format(segment=segmentOrdinal)
+	scrollScript.category = SCRIPT_CATEGORY
+	scrollScript.bypassInputHelp = False
+	return scrollScript
+
+
 def _makeDisplayMonitorScript(displayOrdinal: int, segmentOrdinal: int, start: bool):
 	"""Build one object monitoring script that names its segment by display.
 
@@ -3691,10 +3736,22 @@ def _makeMonitorScript(segmentNumber: int, start: bool):
 def _generateSegmentScripts() -> None:
 	"""Add the per segment commands to the plugin class.
 
-	Two families. The display relative ones name a segment by its display and its place on
-	it, which survives rearrangements; the others count across the whole display. One set
-	for every segment the add-on can offer. None are bound by default.
+	Three families. The display relative ones name a segment by its display and its place on
+	it, which survives rearrangements; the this display ones take the display from the key
+	pressed; the others count across the whole display. One set for every segment the add-on
+	can offer. None are bound by default.
 	"""
+	for segmentOrdinal in range(devicesModule.MAX_UI_DISPLAY_SEGMENTS):
+		setattr(
+			GlobalPlugin,
+			f"script_scrollThisDisplaySegment{segmentOrdinal}Forward",
+			_makeThisDisplayScrollScript(segmentOrdinal, True),
+		)
+		setattr(
+			GlobalPlugin,
+			f"script_scrollThisDisplaySegment{segmentOrdinal}Back",
+			_makeThisDisplayScrollScript(segmentOrdinal, False),
+		)
 	for displayOrdinal in range(devicesModule.MAX_UI_DISPLAYS):
 		setattr(
 			GlobalPlugin,

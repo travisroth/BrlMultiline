@@ -195,6 +195,26 @@ def sourceHolds(source: str | None, rect) -> bool:
 	return True
 
 
+def segmentOnPressedDisplay(gesture, container, ordinal: int) -> int | None:
+	"""Find a segment by where it sits on the display a key was pressed on.
+
+	A key on no display means the display holding the focus. An ordinary display is one display.
+
+	:param gesture: the gesture that asked, or None.
+	:param container: the display container.
+	:param ordinal: which of that display's segments, counting from 0.
+	:return: the segment's index, or None if that display has no such segment.
+	"""
+	deviceMap = devices.deviceMap()
+	if not deviceMap:
+		return ordinal if ordinal < len(container.rects) else None
+	held = {device.driverName: devices.segmentsForDevice(container.rects, device) for device in deviceMap}
+	segments = held.get(_displayFor(gesture))
+	if segments is None:
+		segments = next((each for each in held.values() if container.focusSegmentNumber in each), [])
+	return segments[ordinal] if ordinal < len(segments) else None
+
+
 def nativeSegmentForSource(source: str | None, container) -> int | None:
 	"""Find the segment a display's own panning keys should drive.
 
