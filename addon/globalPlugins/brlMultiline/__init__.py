@@ -2007,7 +2007,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("BrlMultiline is not active"))
 			return None
 		number = panning.segmentOnPressedDisplay(gesture, container, segmentOrdinal)
-		if number is None:
+		if number is None and panning.isPressedDisplayGone(gesture):
+			# Translators: reported when a command acts for one of the combined braille displays
+			# and that display is not connected.
+			ui.message(_("That display is not connected"))
+		elif number is None:
 			# Translators: reported when a command names a segment that the display its key is
 			# on does not have. The placeholder is a segment number.
 			ui.message(_("No segment {segment} on this display").format(segment=segmentOrdinal))

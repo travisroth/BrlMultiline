@@ -273,6 +273,29 @@ class TestASegmentOfThePressedDisplay(PanningTestCase):
 		self.assertEqual(panning.segmentOnPressedDisplay(StubGesture(FOCUS), container, 1), 1)
 		self.assertIsNone(panning.segmentOnPressedDisplay(StubGesture(FOCUS), container, 2))
 
+	def actingForTheUnpluggedFocus(self):
+		""":return: a keyboard key bound to act for the Focus, with only the Monarch connected."""
+		from brlMultiline import keyLayerDispatch
+
+		self.handler.display = fakeVirtualDisplay((MONARCH, 0, 8, 32))
+		gesture = types.SimpleNamespace()
+		setattr(gesture, keyLayerDispatch.ACTS_FOR_ATTRIBUTE, FOCUS)
+		return gesture
+
+	def test_aDisplayNamedButNotConnectedHasNoSegment(self):
+		"""Not the display holding the focus, which would scroll the Monarch in its place."""
+		container = fakeContainer(0, COMPOSITE_RECTS[:2])
+		self.assertIsNone(panning.segmentOnPressedDisplay(self.actingForTheUnpluggedFocus(), container, 0))
+
+	def test_aDisplayNamedButNotConnectedIsGone(self):
+		self.assertTrue(panning.isPressedDisplayGone(self.actingForTheUnpluggedFocus()))
+
+	def test_aConnectedDisplayIsNotGone(self):
+		self.assertFalse(panning.isPressedDisplayGone(StubGesture(FOCUS)))
+
+	def test_aKeyOnNoDisplayIsNotGone(self):
+		self.assertFalse(panning.isPressedDisplayGone(None))
+
 
 class TestWhichSegment(PanningTestCase):
 	"""A display's keys drive that display."""

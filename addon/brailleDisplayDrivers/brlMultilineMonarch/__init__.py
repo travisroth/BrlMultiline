@@ -272,6 +272,8 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		self._pollGeneration = 0
 		self._retryDelay = POLL_INTERVAL
 		self._reopening = False
+		self._unproven = False
+		"""Set when a reopened device is installed, until a write to it gets through."""
 		self._writesSuspended = False
 		"""Set, under `_writeLock`, by the write that finds the device lost.
 
@@ -1283,6 +1285,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 			return
 		with self._lifecycleLock:
 			self._retryDelay = POLL_INTERVAL
+			self._unproven = False
 
 	def _sendReport(self, device, data: bytes) -> None:
 		"""Write one output report, unless the device is closed, and not for longer than allowed.
@@ -1331,7 +1334,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 		Read without the locks that guard these flags. Each is a bool written in one step, and a
 		status read that is one moment out of date is not worth making a caller wait on the wire.
 		"""
-		return not (self._writesSuspended or self._reopening or self._gaveUp)
+		return not (self._writesSuspended or self._reopening or self._unproven or self._gaveUp)
 
 	def _watchForDisconnect(self) -> None:
 		"""Learn about a dropped link from the read side, rather than waiting for a write.
@@ -1542,6 +1545,7 @@ class BrailleDisplayDriver(HidBrailleDriver):
 					self._dev = device
 					self._pinCap = pinCap
 					self._writesSuspended = False
+					self._unproven = True
 					self._resetInputSession()
 			if stale:
 				log.debug("BrlMultiline: the Monarch was terminated while reopening; letting go again")

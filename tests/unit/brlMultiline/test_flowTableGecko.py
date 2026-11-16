@@ -155,6 +155,16 @@ class TestHolding(HeldTableTestCase):
 		self.assertIsNone(holdTable(handleFor(document)))
 		self.assertEqual(document.found, 0)
 
+	def test_aLookupSetOnTheDocumentItselfIsNotBypassed(self):
+		document = self.document()
+		document._getTableCellAt = mock.Mock(return_value=FakeInfo("its own lookup"))
+		self.assertIsNone(holdTable(handleFor(document)))
+		handle = handleFor(document)
+		with flowTableSource.tableHeld(handle):
+			region = flowTableSource.cellRegion(handle, 1, 1)
+		self.assertEqual(region.rawText, "its own lookup")
+		document._getTableCellAt.assert_called_once()
+
 	def test_anotherKindOfDocumentIsNotHeld(self):
 		self.assertIsNone(holdTable(handleFor(FakeTableDocument([["a"]]))))
 

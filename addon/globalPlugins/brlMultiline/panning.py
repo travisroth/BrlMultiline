@@ -198,7 +198,9 @@ def sourceHolds(source: str | None, rect) -> bool:
 def segmentOnPressedDisplay(gesture, container, ordinal: int) -> int | None:
 	"""Find a segment by where it sits on the display a key was pressed on.
 
-	A key on no display means the display holding the focus. An ordinary display is one display.
+	A key on no display means the display holding the focus. A display named but not connected,
+	as a keyboard binding acting for an unplugged display does, has no segments, so another
+	display is never scrolled in its place. An ordinary display is one display.
 
 	:param gesture: the gesture that asked, or None.
 	:param container: the display container.
@@ -209,10 +211,21 @@ def segmentOnPressedDisplay(gesture, container, ordinal: int) -> int | None:
 	if not deviceMap:
 		return ordinal if ordinal < len(container.rects) else None
 	held = {device.driverName: devices.segmentsForDevice(container.rects, device) for device in deviceMap}
-	segments = held.get(_displayFor(gesture))
-	if segments is None:
+	display = _displayFor(gesture)
+	if display is None:
 		segments = next((each for each in held.values() if container.focusSegmentNumber in each), [])
+	else:
+		segments = held.get(display, [])
 	return segments[ordinal] if ordinal < len(segments) else None
+
+
+def isPressedDisplayGone(gesture) -> bool:
+	""":return: whether a gesture is for a display that is not among the combined displays now."""
+	deviceMap = devices.deviceMap()
+	display = _displayFor(gesture)
+	if not deviceMap or display is None:
+		return False
+	return all(device.driverName != display for device in deviceMap)
 
 
 def nativeSegmentForSource(source: str | None, container) -> int | None:

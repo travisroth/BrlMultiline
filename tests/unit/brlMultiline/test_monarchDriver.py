@@ -870,6 +870,29 @@ class TestReconnection(MonarchTestCase):
 		self.driver._gaveUp = True
 		self.assertFalse(self.driver.isAvailable)
 
+	def reopenBeforeTheRepaint(self, writeHangs=False):
+		""":return: the replacement device, open, with the repaint to it still queued."""
+		self.driver.display([1] * 256)
+		self.driver._dev._onReadError(1167)
+		replacement = FakeHid()
+		replacement.writeHangs = writeHangs
+		hidDevices.append(replacement)
+		callLaterQueue.fire()
+		self.assertIs(self.driver._dev, replacement)
+		self.assertEqual(replacement.writeAttempts, 0)
+		return replacement
+
+	def test_aDeviceJustReopenedCannotBeReachedUntilAWriteGetsThrough(self):
+		self.reopenBeforeTheRepaint()
+		self.assertFalse(self.driver.isAvailable)
+		bgThread.flush()
+		self.assertTrue(self.driver.isAvailable)
+
+	def test_aReopenedDeviceWhoseFirstWriteFailsCannotBeReached(self):
+		self.reopenBeforeTheRepaint(writeHangs=True)
+		bgThread.flush()
+		self.assertFalse(self.driver.isAvailable)
+
 	def test_aReadErrorIsReportedAsHandledOnlyWhenSomethingIsRetrying(self):
 		"""Inside a virtual display, False is taken at its word: the member is dropped and
 		the in place reconnection this driver promises never gets its chance."""

@@ -2005,6 +2005,17 @@ class TestDisplayRelativeCommands(PluginTestCase):
 		self.assertEqual(scrolls, [])
 		self.assertTrue(any("this display" in message for message in spokenMessages), spokenMessages)
 
+	def test_aThisDisplayScriptForADisplayNotConnectedSaysSo(self):
+		from unittest import mock
+
+		with (
+			mock.patch.object(panning, "segmentOnPressedDisplay", return_value=None),
+			mock.patch.object(panning, "isPressedDisplayGone", return_value=True),
+		):
+			scrolls = self.pressOnTheFocus("script_scrollThisDisplaySegment0Forward")
+		self.assertEqual(scrolls, [])
+		self.assertTrue(any("not connected" in message for message in spokenMessages), spokenMessages)
+
 	def test_thePressedDisplaysReversalApplies(self):
 		scrolls = self.pressOnTheFocus("script_scrollThisDisplaySegment0Forward", reverseScrollBtns=True)
 		self.assertEqual(scrolls, [("back", 2)])
