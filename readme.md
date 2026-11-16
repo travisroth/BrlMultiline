@@ -50,7 +50,7 @@ I don't claim any of this is the best way to present information. It is one way.
 the add-on's code is meant to show what is possible, and may or may not be the best way to
 build this into NVDA itself.
 
-Further inspiration and encouragement that I am not the online one with goals like this can be found in the
+Further inspiration and encouragement that I am not the only one with goals like this can be found in the
 discussion [Improve Multi-Line Braille Support · nvaccess/nvda · Discussion](https://github.com/nvaccess/nvda/discussions/18462)
  and [Allow NVDA to control multiple braille displays at the same time · Issue #6614 · nvaccess/nvda.](https://github.com/nvaccess/nvda/issues/6614)
 
