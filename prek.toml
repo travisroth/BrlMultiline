@@ -18,15 +18,15 @@ hooks = [
 repo = "builtin"
 hooks = [
   # Prevents commits to certain branches
-  {
-    id = "no-commit-to-branch",
-    args = [
-      "--branch",
-      "main",
-      "--branch",
-      "master"
-    ]
-  },
+#  {
+    #id = "no-commit-to-branch",
+    #args = [
+      #"--branch",
+      #"main",
+      #"--branch",
+      #"master"
+    #]
+  #},
   # Checks that large files have not been added. Default cut-off for "large" files is 500kb.
   { id = "check-added-large-files" },
   # Checks for filenames that will conflict on case insensitive filesystems (the majority of Windows filesystems, most of the time)

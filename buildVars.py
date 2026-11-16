@@ -27,11 +27,11 @@ addon_info = AddonInfo(
 	Provides a virtual Braille display driver to allow running multiple displays at once.
 	"""),
 	# version
-	addon_version="2026.3.2",
+	addon_version="2026.3.3",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
 	addon_changelog=_(
-		"""Pinned objects and app layouts no longer show on the braille display while Windows is locked.""",
+		"""Glyph (graphical icons) fixed for pinned objects. Optimize table layout processing.""",
 	),
 	# Author(s)
 	addon_author="Travis Roth <travis@travisroth.com>",
@@ -53,7 +53,7 @@ addon_info = AddonInfo(
 	# Add-on update channel (default is None, denoting stable releases,
 	# and for development releases, use "dev".)
 	# Do not change unless you know what you are doing!
-	addon_updateChannel="dev",
+	addon_updateChannel=None,
 	# Add-on license such as GPL 2
 	addon_license="GPL 2",
 	# URL for the license document the ad-on is licensed under
