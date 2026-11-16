@@ -657,11 +657,28 @@ only documents that inherit `Gecko_ia2._getTableCellAt`, which covers Firefox an
 copied. A cell the held table cannot read is read the ordinary way; a hidden cell or a cancelled
 call is not tried again. A held table adds `cell at`, `cell object`, `hidden check` and `cell info`
 under `cell lookup`. A page of columns is held too, for a pin as well as the band. Other cells
-read after the build, and a pin's own build, are read the ordinary way.
+read after the build are read the ordinary way. A pin's own build holds its table too, in
+`ObjectMonitor`.
 
 These numbers come first in the work on the cost of `measure`: they decide how much a table
 fetcher, a budget or a cache is worth, and whether the focus walk in `rebuildBuffer` matters more
 than any of them.
+
+Still owed, from the review of 2026.3.3:
+
+1. **A time limit on `measure`.** Holding the table made each cell cheaper, but `measure` still
+   reads every selected column across its sample, with nothing to stop it on a slow application.
+   It needs a deadline, after which the columns not yet read keep their default width. A column
+   the deadline cut off is unmeasured, not empty, and must not be hidden or narrowed as an empty
+   one is. See "And empty in the sample is not the same as empty", under M3d.
+2. **One table lookup for a pin's saved layout check.** `GlobalPlugin._hasSavedLayout` reads the
+   table's headings to find its saved layout before the pin's build holds the table, so those
+   reads find the table again for each cell. The handle and layout it finds can be passed to the
+   build, which then reads within one `tableHeld` block.
+3. **Noticing when NVDA changes its cell lookup.** `HeldTable.cellAt` copies NVDA's
+   `Gecko_ia2._getTableCellAt`, and the unit tests use stand-ins, so they cannot see NVDA change
+   it. A check against the method's source in the NVDA checkout, such as a stored hash that fails
+   a test when it differs, would say when the copy needs updating.
 
 ## Non-goals
 
