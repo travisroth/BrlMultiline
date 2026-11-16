@@ -2,7 +2,7 @@
 
 * Author: Travis Roth
 * NVDA compatibility: 2026.3 and later.
-* Download: [BrlMultiline 2026.3.2](https://github.com/travisroth/BrlMultiline/releases/download/v2026.3.2/BrlMultiline-2026.3.2.nvda-addon)
+* Download: [BrlMultiline 2026.3.3](https://github.com/travisroth/BrlMultiline/releases/download/v2026.3.3/BrlMultiline-2026.3.3.nvda-addon)
 
 BrlMultiline is an NVDA add-on for getting more out of a multi-line braille display, or out
 of two or more displays used together.

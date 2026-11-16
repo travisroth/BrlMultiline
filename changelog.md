@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026.3.3
+
+Added:
+
+- **Scroll commands for the display a key is on.** New unassigned commands, "Navigation: Scrolls
+  segment 0 of this display forward" and "back", and the same for segment 1 and up, count
+  segments from 0 on the display the key is on, whatever else is connected. A key on the second
+  display goes on working when the first is unplugged, and a display's own keys can reach each of
+  its segments in an app layout. The existing "Scrolls segment 0 forward" commands still count
+  across all the combined displays. Tried with the Focus bumper bars and the Monarch pinned.
+
+Changed:
+
+- **Faster tables in Chrome, Edge and Firefox.** A web table is now found once per build or page
+  turn rather than once per cell. On a table of 20 by 21 cells in Chrome, showing the table went
+  from about 2.5 to 1.3 seconds, and turning a page of columns no longer shows a delay.
+
+Fixed:
+
+- **A pinned table keeps its layout.** A table pinned to a display was read in the general
+  settings' columns, ignoring a layout arranged or saved for it. It now uses the layout made for
+  that table, and a table with a saved layout is pinned in columns without asking. Tried on the
+  Monarch.
+
+- **Symbols on a pinned web page.** On a pinned page, rows other than the reader's own could lose
+  a symbol such as the visited link shape a moment after it was drawn, leaving its first letter
+  on the display, as the page was re-read. The symbols now stay.
+
+- **A display that is reconnecting.** A Monarch that drops its Bluetooth connection is no longer
+  reported as in use. The BrlMultiline displays settings say it is reconnecting, and moving the
+  focus to it says the display is not responding. It keeps its rows, and what was on it comes
+  back when it reconnects.
+
 ## 2026.3.2
 
 Added:
