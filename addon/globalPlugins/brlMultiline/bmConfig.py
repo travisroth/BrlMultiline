@@ -126,6 +126,7 @@ configSpec = {
 			"flowLineFocus": "boolean(default=True)",
 			"flowTableRowHeight": f"integer(default={flowTable.DEFAULT_MAX_ROWS}, min=1, max={flowTable.MAX_TABLE_ROWS})",
 			"flowTableTruncate": "boolean(default=False)",
+			"flowTableLockPanning": "boolean(default=False)",
 			"flowTablePinKeyMode": f'option({FOLLOWING_OPTIONS}, default="{FOLLOW_NVDA}")',
 			"flowTablePinKey": "boolean(default=True)",
 			"flowLiveSeconds": "integer(default=0, min=0, max=60)",
@@ -188,6 +189,8 @@ configSpec = {
 	indent has room for the mark.
 - `flowTableRowHeight`: how many rows of the band one row of a table may use.
 - `flowTableTruncate`: whether a cell too long for its column is cut rather than wrapped.
+- `flowTableLockPanning`: whether panning stops at the first and last rows of a table laid out
+	in columns, rather than moving the caret out of it. Off by default.
 - `flowTablePinKeyMode`: whether the first column is repeated at the left of every later page.
 	One of `FOLLOWING`; following means NVDA's `reportTableHeaders` asking for row headers.
 - `flowTablePinKey`: the old checkbox form of the above. See `LEGACY_FOLLOWING`.
@@ -728,6 +731,18 @@ def shouldTruncateTableCells(displayKey: str | None = None) -> bool:
 		return bool(getDisplayConfig(displayKey)["flowTableTruncate"])
 	except Exception:
 		log.debugWarning("Could not read flowTableTruncate", exc_info=True)
+		return False
+
+
+def shouldLockPanningInTables(displayKey: str | None = None) -> bool:
+	""":return: whether panning stops at a columns table's ends rather than leaving it.
+
+	Off by default. See `flowBand.FlowBand.panOutOfTable`.
+	"""
+	try:
+		return bool(getDisplayConfig(displayKey)["flowTableLockPanning"])
+	except Exception:
+		log.debugWarning("Could not read flowTableLockPanning", exc_info=True)
 		return False
 
 

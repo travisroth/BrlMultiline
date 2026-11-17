@@ -1233,3 +1233,79 @@ class TestMeasuringFromASnapshot(unittest.TestCase):
 			measured[snapshot.cells[3].column].width,
 			flowTableSource.widthOf(snapshot.cells[3].text[: flowTableSource.MEASURED_TEXT]),
 		)
+
+
+class FakeOffsetsInfo:
+	"""A range of a fake buffer whose lines are ten characters each."""
+
+	LINE = 10
+
+	def __init__(self, document, start, end):
+		self.document = document
+		self.start = start
+		self.end = end
+
+	def _getOffsetsFromFieldIdentifier(self, docHandle, ID):
+		return self.document.tables[(docHandle, ID)]
+
+	def _getStoryLength(self):
+		return self.document.length
+
+	def expand(self, unit):
+		self.start = self.start - self.start % self.LINE
+		self.end = self.start + self.LINE
+
+	def collapse(self):
+		self.end = self.start
+
+
+class FakeOffsetsDocument:
+	"""A buffer holding one table, which knows where its field starts and ends."""
+
+	def __init__(self, start, end, length):
+		self.tables = {(7, 42): (start, end)}
+		self.length = length
+		self.selection = None
+
+	def makeTextInfo(self, position):
+		if hasattr(position, "startOffset"):
+			return FakeOffsetsInfo(self, position.startOffset, position.endOffset)
+		return FakeOffsetsInfo(self, 0, 0)
+
+
+class TestMovingTheCaretOutOfATable(unittest.TestCase):
+	"""Where a pan that leaves a table puts the caret."""
+
+	def _handle(self, document, tableID=(7, 42)):
+		return flowTableSource.TableHandle(document=document, tableID=tableID, numRows=3, numCols=2, row=1, col=1)
+
+	def test_forwardIsTheStartOfTheLineAfterTheTable(self):
+		document = FakeOffsetsDocument(start=20, end=50, length=100)
+		self.assertTrue(flowTableSource.caretBeside(self._handle(document), forward=True))
+		self.assertEqual((document.selection.start, document.selection.end), (50, 50))
+
+	def test_backIsTheStartOfTheLineBeforeTheTable(self):
+		document = FakeOffsetsDocument(start=20, end=50, length=100)
+		self.assertTrue(flowTableSource.caretBeside(self._handle(document), forward=False))
+		self.assertEqual((document.selection.start, document.selection.end), (10, 10))
+
+	def test_aTableThatEndsTheDocumentHasNothingAfterIt(self):
+		document = FakeOffsetsDocument(start=20, end=100, length=100)
+		self.assertFalse(flowTableSource.caretBeside(self._handle(document), forward=True))
+		self.assertIsNone(document.selection)
+
+	def test_aTableThatStartsTheDocumentHasNothingBeforeIt(self):
+		document = FakeOffsetsDocument(start=0, end=50, length=100)
+		self.assertFalse(flowTableSource.caretBeside(self._handle(document), forward=False))
+		self.assertIsNone(document.selection)
+
+	def test_aDocumentThatCannotSayWhereTheTableIsStaysPut(self):
+		"""A spreadsheet or a list view names its table some other way."""
+		document = FakeOffsetsDocument(start=20, end=50, length=100)
+		self.assertFalse(flowTableSource.caretBeside(self._handle(document, tableID=3), forward=True))
+		self.assertIsNone(document.selection)
+
+	def test_aFailedReadStaysPut(self):
+		document = FakeOffsetsDocument(start=20, end=50, length=100)
+		document.tables = {}
+		self.assertFalse(flowTableSource.caretBeside(self._handle(document), forward=True))

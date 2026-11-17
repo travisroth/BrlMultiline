@@ -37,7 +37,7 @@ from . import (
 	patches,
 	stageTimes,
 )
-from .flow import CallCancelled
+from .flow import CallCancelled, Edge, EdgeState
 from .flowControl import FlowController
 from .flowBuild import (
 	Unreadable,
@@ -296,6 +296,7 @@ class FlowBand(PanelOwner):
 			segment.follow(self.handleFocusRegions)
 			segment.onUpdate = self.recheck
 			segment.onSettle = self._scheduleSettle
+			segment.onPanRefused = self.panOutOfTable
 
 	def _scheduleSettle(self) -> None:
 		"""Come back for a second look shortly after a keystroke into an edit.
@@ -1414,6 +1415,38 @@ class FlowBand(PanelOwner):
 		if not self._readingATable():
 			return None
 		return getattr(self.controller.renderer, "columnPlan", None)
+
+	def panOutOfTable(self, forward: bool) -> bool:
+		"""Move the caret out of a columns table when a pan reaches its first or last row.
+
+		The layout goes with the caret, as it does for any caret leaving the table, and the page
+		is read from there: after the table with its first line at the top, or before it with
+		its last line at the bottom, as a pan would show it. Not where the reader has asked for
+		panning to stay inside tables (`bmConfig.shouldLockPanningInTables`), nor where the pan
+		stopped short of the table's end, as a fetch budget can stop it.
+
+		:param forward: the direction of the pan that was refused.
+		:return: whether the caret left the table.
+		"""
+		if not self._readingATable() or bmConfig.shouldLockPanningInTables():
+			return False
+		edge = Edge.AFTER if forward else Edge.BEFORE
+		if self.controller.window.edges[edge] is not EdgeState.END:
+			return False
+		handle = self._tableOnTheBand()
+		if handle is None or not flowTableSource.caretBeside(handle, forward):
+			return False
+		self._forgetTheTable()
+		self._rebuildTable()
+		if not forward and not self._readingATable():
+			try:
+				self.controller.enterAtCursor(contextRows=max(0, self.controller.window.numRows - 1))
+			except Exception:
+				log.debugWarning("Could not show what comes before the table", exc_info=True)
+		segment = self.segment()
+		if segment is not None:
+			segment.refresh()
+		return True
 
 	def _readingATable(self) -> bool:
 		""":return: whether the band is showing a table laid out in columns.

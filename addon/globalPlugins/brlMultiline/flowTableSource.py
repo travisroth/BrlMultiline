@@ -1628,6 +1628,48 @@ def wantsColumns(request, obj) -> bool:
 	return handle is not None and sameTable(handle.key, request)
 
 
+def caretBeside(handle: TableHandle, forward: bool) -> bool:
+	"""Move the caret to the line just after a table, or just before it.
+
+	For a browse mode document whose buffer knows where a table's field starts and ends, as
+	NVDA's virtual buffers do. Moves the caret as a pan moves it, through `selection`, so the
+	page is read from there as after any caret move.
+
+	:param handle: the table.
+	:param forward: True for the line after the table, False for the line before it.
+	:return: whether the caret moved; False where nothing is on that side of the table or the
+		document cannot say where the table is.
+	"""
+	import textInfos
+	from textInfos.offsets import Offsets
+
+	document = handle.document
+	tableID = handle.tableID
+	if not (isinstance(tableID, tuple) and len(tableID) == 2):
+		return False
+	try:
+		info = document.makeTextInfo(textInfos.POSITION_FIRST)
+		start, end = info._getOffsetsFromFieldIdentifier(*tableID)
+		if forward:
+			if end >= info._getStoryLength():
+				return False
+			at = end
+		else:
+			if start <= 0:
+				return False
+			at = start - 1
+		beside = document.makeTextInfo(Offsets(at, at))
+		beside.expand(textInfos.UNIT_LINE)
+		beside.collapse()
+		document.selection = beside
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning("Could not move the caret out of a table", exc_info=True)
+		return False
+	return True
+
+
 def sameTable(first, second) -> bool:
 	""":return: whether two table keys name the same table. See `TableHandle.key`.
 

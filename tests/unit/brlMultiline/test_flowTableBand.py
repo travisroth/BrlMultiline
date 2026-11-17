@@ -1753,6 +1753,79 @@ class TestWalkingOutOfTheTable(TableBandTestCase):
 		self.assertIs(self.band.controller.renderer.columnPlan, plan)
 
 
+class TestPanningOutOfTheTable(TableBandTestCase):
+	"""At the table's first or last row, a pan moves the caret out and the page reads on."""
+
+	PAGE = [f"before {n}" for n in range(1, 11)] + ["the table"] + [f"after {n}" for n in range(1, 11)]
+	TABLE_LINE = 10
+
+	def setUp(self):
+		super().setUp()
+		from unittest import mock
+
+		from brlMultiline import flowTableSource
+
+		self.obj, self.document = self._inTable(lines=self.PAGE, caretIndex=self.TABLE_LINE)
+		self.band.layOutTable()
+		self.assertTrue(self._readingATable())
+		self.asked = []
+		patcher = mock.patch.object(flowTableSource, "caretBeside", side_effect=self._caretBeside)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def _caretBeside(self, handle, forward):
+		self.asked.append(forward)
+		self.document.inTable = False
+		self.document.caretIndex = self.TABLE_LINE + (1 if forward else -1)
+		return True
+
+	def _textOf(self, blockId):
+		return next(block.rawText for block in self.band.controller.window.blocks if block.blockId == blockId)
+
+	def test_panningOnFromTheLastRowLeavesTheTable(self):
+		self.band.segment().scrollForward()
+		self.assertEqual(self.asked, [True])
+		self.assertIsNone(self.band.tableWanted)
+		self.assertFalse(self._readingATable())
+
+	def test_whatFollowsTheTableIsAtTheTop(self):
+		self.band.segment().scrollForward()
+		self.assertEqual(self._textOf(self.band.controller.window.topBlockId()), "after 1")
+
+	def test_panningBackFromTheFirstRowLeavesTheTable(self):
+		self.band.segment().scrollBack()
+		self.assertEqual(self.asked, [False])
+		self.assertFalse(self._readingATable())
+
+	def test_whatComesBeforeTheTableEndsAtTheCaret(self):
+		"""As a pan back shows a page: the line the caret is on is the last one shown, so with
+		eight rows the display starts seven lines above it."""
+		self.band.segment().scrollBack()
+		self.assertEqual(self._textOf(self.band.controller.window.topBlockId()), "before 3")
+
+	def test_theReaderCanKeepPanningInsideTheTable(self):
+		CONFIG["flowTableLockPanning"] = True
+		self.band.segment().scrollForward()
+		self.band.segment().scrollBack()
+		self.assertEqual(self.asked, [])
+		self.assertTrue(self._readingATable())
+
+	def test_aPanStoppedShortOfTheEndStaysInTheTable(self):
+		"""A budget can stop a fetch before the last row; that is not the table's end."""
+		self.band.controller.window.setEdge(Edge.AFTER, EdgeState.DEFERRED)
+		self.assertFalse(self.band.panOutOfTable(True))
+		self.assertTrue(self._readingATable())
+
+	def test_aTableWithNothingAfterItStaysPut(self):
+		from unittest import mock
+
+		from brlMultiline import flowTableSource
+
+		with mock.patch.object(flowTableSource, "caretBeside", return_value=False):
+			self.band.segment().scrollForward()
+		self.assertTrue(self._readingATable())
+
+
 class TestTheLayoutDoesNotOutliveTheTable(TableBandTestCase):
 	"""The state a reader cannot see, and the one that goes wrong."""
 

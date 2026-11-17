@@ -862,6 +862,24 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 				),
 			),
 		)
+		# Translators: label of a checkbox in settings, about whether the panning keys can move
+		# out of a table that is laid out in columns.
+		lockPanningLabel = _("&Keep panning inside a table laid out in columns")
+		self.lockPanningCtrl = sHelper.addItem(wx.CheckBox(self, label=lockPanningLabel))
+		self.lockPanningCtrl.SetValue(bool(section["flowTableLockPanning"]))
+		sHelper.addItem(
+			wx.StaticText(
+				self,
+				label=_(
+					# Translators: shown in settings under the checkbox above, explaining what
+					# changes when it is on.
+					"Off, panning forward from the last row of the table moves the caret to what "
+					"follows the table, and panning back from the first row moves it to what "
+					"comes before, so the page reads on as usual. On, panning stops at the first "
+					"and last rows, and only moving the caret leaves the table.",
+				),
+			),
+		)
 		# Translators: label of a combo box in settings, about repeating a table's first column
 		# on each page of columns when the table is wider than the display.
 		pinLabel = _("&Repeat the first column on every page of a wide table:")
@@ -1126,6 +1144,7 @@ class FlowSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		section["flowLineFocus"] = self.lineFocusCtrl.IsChecked()
 		section["flowTableRowHeight"] = self.tableRowsCtrl.Value
 		section["flowTableTruncate"] = self.truncateCtrl.IsChecked()
+		section["flowTableLockPanning"] = self.lockPanningCtrl.IsChecked()
 		section["flowTablePinKeyMode"] = followingChoices()[self.pinKeyCtrl.GetSelection()][0]
 		section["flowLiveSeconds"] = self.liveSecondsCtrl.Value
 		section["flowLiveUpdates"] = self.liveUpdatesCtrl.IsChecked()

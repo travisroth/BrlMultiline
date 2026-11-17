@@ -413,6 +413,12 @@ row stays within its rows and long values are cut. Useful for a table you know w
 the first few characters of a value are enough to recognize it.
 Recommended to leave it off here and set this on an individual table basis using the table layout editor.
 
+**Keep panning inside a table laid out in columns.** Off by default. Off, panning forward from
+the last row of a table in columns moves the cursor to the line after the table, and panning
+back from the first row moves it to the line before, so the page reads on as usual and the
+columns go away as they do whenever the cursor leaves the table. On, panning stops at the first
+and last rows, and only moving the cursor leaves the table.
+
 **Repeat the first column on every page of a wide table.** A table too wide for the display is
 shown one page of columns at a time. With this on, the first column is repeated at the left of
 every page, shortened to fit, so you can still tell which row you are on. Choose Always,
@@ -474,6 +480,13 @@ never moves while you are reading it.
 
 A table can be laid out in columns on the display. Use "Table: Toggle table columns on or off"
 with the cursor in a table.
+
+**Panning.** The panning keys move down and up the table's rows without moving the cursor. A
+row taller than the display is panned through a display at a time. From the last row, panning
+forward moves the cursor to the line after the table, and from the first row, panning back
+moves it to the line before, and the page reads on from there. To have panning stop at the
+table's ends instead, turn on "Keep panning inside a table laid out in columns" in the flow
+settings. This works in browse mode tables; a worksheet or a list view stays put at its ends.
 
 **Wide tables.** A table too wide for the display is split into pages of columns. "Table: Next
 columns" and "Table: Previous columns" move across it without moving the cursor. The page you

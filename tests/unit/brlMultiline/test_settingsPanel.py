@@ -580,6 +580,7 @@ class FlowPanelTestCase(SettingsPanelTestCase):
 		self.panel.lineFocusCtrl = FakeControl(True)
 		self.panel.tableRowsCtrl = FakeControl(1)
 		self.panel.truncateCtrl = FakeControl(False)
+		self.panel.lockPanningCtrl = FakeControl(False)
 		self.panel.pinKeyCtrl = FakeControl(0)
 		self.panel.liveSecondsCtrl = FakeControl(2)
 		self.panel.liveUpdatesCtrl = FakeControl(True)
@@ -687,6 +688,15 @@ class TestFlowOnOneDisplay(FlowPanelTestCase):
 		self.panel.truncateCtrl.SetValue(True)
 		self.panel.onSave()
 		self.assertTrue(self.sections[MONARCH_KEY]["flowTableTruncate"])
+
+	def test_keepingPanningInsideATableIsSaved(self):
+		self.panel.lockPanningCtrl.SetValue(True)
+		self.panel.onSave()
+		self.assertTrue(self.sections[MONARCH_KEY]["flowTableLockPanning"])
+
+	def test_panningLeavesATableUnlessTheReaderSaysOtherwise(self):
+		self.panel.onSave()
+		self.assertFalse(self.sections[MONARCH_KEY]["flowTableLockPanning"])
 
 	def test_readingWritingByParagraphIsSaved(self):
 		self.panel.writeByParagraphCtrl.SetValue(False)

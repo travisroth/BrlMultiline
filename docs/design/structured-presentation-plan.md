@@ -3156,6 +3156,35 @@ one caught: with the check for the kind of document removed, asking a review cur
 cells raised, the catch turned that into no movement, and the reader got the right key for
 the wrong reason.
 
+### Panning, out of a table and through a tall row
+
+A table in columns is a stream of its own rows, bounded by the table, and panning in it moves
+no caret (`movesCursor=False` in `buildTableController`), so from the start a pan at the first
+or last row was refused and the reader was held in the table until they moved the caret. The
+arrow keys were given the opposite rule, never trap (see "The arrow keys, inside a table"),
+and panning now follows it by default.
+
+**A refused pan at an end moves the caret out.** `FlowBufferSegment` hands a refused pan to
+`onPanRefused`, which the band answers with `FlowBand.panOutOfTable`. Only at the table's real
+end, where the window's edge is `END`; an edge a fetch budget deferred is not an end. The caret
+goes to the start of the line after the table, or of the line before it, found from the
+offsets of the table's own field (`flowTableSource.caretBeside`). That is a virtual buffer's
+answer, so a worksheet, a list view and the message list stay put at their ends, where leaving
+has no line to go to. Then the layout is given back exactly as for any caret leaving the table,
+and the page is read from the caret: after the table with that line at the top, before it with
+that line at the bottom, which is where a pan in that direction would put it.
+
+**The old rule is a setting**, `flowTableLockPanning`, "Keep panning inside a table laid out in
+columns", off by default, for a reader who pans up and down a table often and would rather not
+fall out of it by one press too many.
+
+**A tall row is held in paragraph-sized chunks.** A table row taller than four band rows was
+held four rows at a time. `FlowController._continueBlock` starts a block's next chunk a band's
+height before the end of the one it holds, so on an eight row band it could never move past a
+four row chunk, and the rest of a long cell could not be reached. A table row is now held in
+chunks of the renderer's `maxRows`, as a paragraph is, and each cell is laid out only as far as
+the chunk being drawn needs. `MAX_TABLE_ROWS` shapes the layout and no longer cuts the row.
+
 ## Open questions
 
 1. **What re-reads a tree when a node is expanded?** A state change event is the obvious

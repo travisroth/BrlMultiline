@@ -68,6 +68,10 @@ class FlowBufferSegment(BrailleBufferSegment):
 		A rich editor can answer wrongly for a moment after a keystroke, and a second look
 		heals it without waiting for the next key."""
 
+		self.onPanRefused = None
+		"""Called with the direction when the flow refuses a pan, returning whether the owner
+		moved somewhere instead, as out of a table at its end."""
+
 	# Lifetime.
 
 	def attach(self, controller: "FlowController") -> None:
@@ -281,12 +285,16 @@ class FlowBufferSegment(BrailleBufferSegment):
 			return super().scrollForward()
 		if self.controller.panForward():
 			self.refresh()
+		elif self.onPanRefused is not None:
+			self.onPanRefused(True)
 
 	def scrollBack(self) -> None:
 		if self.controller is None:
 			return super().scrollBack()
 		if self.controller.panBack():
 			self.refresh()
+		elif self.onPanRefused is not None:
+			self.onPanRefused(False)
 
 	def routeTo(self, windowPos: int) -> None:
 		if self.controller is None:
