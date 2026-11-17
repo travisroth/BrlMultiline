@@ -21,7 +21,6 @@ from . import brailleSubstitutions, glyphFlow
 from .flow import BLANK_CELL, NO_POSITION, RenderedBlock, RenderKey, SourceBlock
 from .flowIndent import FLAT, IndentPlan
 from .flowTable import (
-	MAX_TABLE_ROWS,
 	READING_ORDER,
 	KEEP_END,
 	TRUNCATE,
@@ -258,20 +257,29 @@ class FlowRenderer:
 		if cells is None or self.columnPlan.isEmpty:
 			return None
 		plan = self.columnPlan
-		lanes = self._lanes(block.region, plan)
+		fromRow = max(0, fromRow)
+		lanes, cut = self._lanes(block.region, plan, upTo=fromRow + max(1, self.maxRows))
 		rows, where = self._laidOut(lanes, plan)
-		return self._chunkOf(block, rows, where, fromRow)
+		return self._chunkOf(block, rows, where, fromRow, cut=cut)
 
-	def _lanes(self, row, plan) -> dict:
-		""":return: the drawn lines of every placed cell, gathered by the lane they go in."""
+	def _lanes(self, row, plan, upTo: int) -> tuple[dict, bool]:
+		"""Draw every placed cell, gathered by the lane it goes in.
+
+		:param row: the table row.
+		:param plan: the layout.
+		:param upTo: how many rows of each cell to draw, from its first.
+		:return: the lanes, and whether any cell has rows past `upTo`.
+		"""
 		lanes: dict = {}
+		cut = False
 		for place in plan.placements():
 			cell = row.cellFor(place.column.index)
 			if cell is None:
 				continue
-			lines, positions = self._cellRows(cell, place.column)
+			lines, positions, more = self._cellRows(cell, place.column, upTo)
+			cut = cut or more
 			lanes.setdefault(place.row, []).append((place, lines, positions))
-		return lanes
+		return lanes, cut
 
 	def _laidOut(self, lanes: dict, plan) -> tuple[list, list]:
 		"""Draw every lane, one under the last, and give back the whole table row.
@@ -324,21 +332,30 @@ class FlowRenderer:
 						where[start][at] = cellPosition(place.column.index, 0)
 		return rows, where
 
-	def _chunkOf(self, block: SourceBlock, rows: list, where: list, fromRow: int) -> RenderedBlock:
+	def _chunkOf(
+		self,
+		block: SourceBlock,
+		rows: list,
+		where: list,
+		fromRow: int,
+		cut: bool = False,
+	) -> RenderedBlock:
 		"""Take the part of a table row the band will show, and say whether there is more.
 
-		A row taller than `flowTable.MAX_TABLE_ROWS` is a block with more rows, panned through
-		like a long paragraph, never silently cut.
+		Held in chunks of `maxRows`, as a paragraph is, and panned through like one, never
+		silently cut. A chunk must be taller than the band: `FlowController._continueBlock`
+		overlaps the next chunk by the band's height, and could not move past a shorter one.
 
 		:param block: the block being rendered.
 		:param rows: every row of the table row.
 		:param where: their position maps.
 		:param fromRow: the first row to show.
+		:param cut: whether `rows` stops short of the table row's end.
 		:return: the rendering.
 		"""
 		total = len(rows)
 		fromRow = max(0, min(fromRow, max(0, total - 1)))
-		end = min(total, fromRow + max(1, MAX_TABLE_ROWS))
+		end = min(total, fromRow + max(1, self.maxRows))
 		return RenderedBlock(
 			blockId=block.blockId,
 			rows=tuple(tuple(line) for line in rows[fromRow:end]),
@@ -346,7 +363,7 @@ class FlowRenderer:
 			renderKey=self._keyWith(0),
 			depth=block.depth,
 			rowOffset=fromRow,
-			moreRows=end < total,
+			moreRows=end < total or cut,
 			rawText=getattr(block.region, "rawText", ""),
 			gapBefore=block.gapBefore,
 			gapAfter=block.gapAfter,
@@ -354,7 +371,7 @@ class FlowRenderer:
 			isDecoration=block.isDecoration,
 		)
 
-	def _cellRows(self, cell, column) -> tuple[list, list]:
+	def _cellRows(self, cell, column, upTo: int) -> tuple[list, list, bool]:
 		"""Translate one cell of a table row and cut it to its column.
 
 		Cut in fill mode, not at word boundaries. A cell that does not fit is laid out again at
@@ -363,29 +380,33 @@ class FlowRenderer:
 
 		:param cell: the cell to read.
 		:param column: the column it goes in.
-		:return: its rows and their position maps.
+		:param upTo: how many rows to draw, from the first.
+		:return: its rows, their position maps, and whether it has rows past `upTo`.
 		"""
 		holder = SourceBlock(blockId=cell.index, region=cell.region)
 		buffer = self._layoutBuffer(holder, width=column.width, glyphs=False)
 		if buffer is None:
-			return [], []
-		rows, positions, _more = self._layout(buffer, fromRow=0)
+			return [], [], False
+		rows, positions, more = self._layout(buffer, fromRow=0, count=upTo)
 		if column.overflow == TRUNCATE:
 			# One row, and the rest of the value is not shown. The reader asked for that — and
 			# which row is theirs too: the first is what cutting has always meant, and the last
 			# is the end of the value, for a column whose cells begin with something nobody
 			# wrote for reading. See `flowTable.KEEP_ENDS`.
 			if column.keep == KEEP_END and len(rows) > 1:
-				return rows[-1:], positions[-1:]
-			return rows[:1], positions[:1]
+				if more:
+					rows, positions, _more = self._layout(buffer, fromRow=0)
+				return rows[-1:], positions[-1:], False
+			return rows[:1], positions[:1], False
 		if len(rows) <= 1:
-			return rows, positions
+			return rows, positions, more
 		indent = column.indent
 		buffer = self._layoutBuffer(holder, width=max(1, column.width - indent), glyphs=False)
 		if buffer is None:
-			return rows, positions
-		rows, positions, _more = self._layout(buffer, fromRow=0)
-		return self._indentedCell(rows, positions, indent)
+			return rows, positions, more
+		rows, positions, more = self._layout(buffer, fromRow=0, count=upTo)
+		rows, positions = self._indentedCell(rows, positions, indent)
+		return rows, positions, more
 
 	def _indentedCell(self, rows: list, positions: list, indent: int) -> tuple[list, list]:
 		"""Move a wrapped cell's continuation rows in, leaving its first row at the margin.
@@ -618,18 +639,25 @@ class FlowRenderer:
 			return None
 		return buffer
 
-	def _layout(self, buffer: BrailleBufferSegment, fromRow: int = 0) -> tuple[list, list, bool]:
+	def _layout(
+		self,
+		buffer: BrailleBufferSegment,
+		fromRow: int = 0,
+		count: int | None = None,
+	) -> tuple[list, list, bool]:
 		"""Walk a laid out block, a pass at a time, collecting the rows wanted.
 
 		Rows before `fromRow` are walked and discarded, since each row's end depends on the last.
 
 		:param buffer: the buffer holding the block.
 		:param fromRow: the first row of the block to keep.
+		:param count: how many rows to keep, `maxRows` if None.
 		:return: the rows kept, their position maps, and whether the block continues past
 			them.
 		"""
+		count = self.maxRows if count is None else max(1, count)
 		if _rowsAreFixedWidth(buffer):
-			return self._filledLayout(buffer, fromRow)
+			return self._filledLayout(buffer, fromRow, count)
 		rows: list[tuple[int, ...]] = []
 		positions: list[tuple[int, ...]] = []
 		seen = 0
@@ -657,7 +685,7 @@ class FlowRenderer:
 				row, where = self._rowFrom(cells, rowPositions)
 				rows.append(row)
 				positions.append(where)
-				if len(rows) >= self.maxRows:
+				if len(rows) >= count:
 					# Not the end of the block, only the end of this chunk. The controller
 					# asks for the next one when the reader pans towards it.
 					more = buffer.windowEndPos < len(cells) or rowPositions.end < len(cells)
@@ -694,7 +722,12 @@ class FlowRenderer:
 			return rows, positions, more
 		return rows[:-1], positions[:-1], more
 
-	def _filledLayout(self, buffer: BrailleBufferSegment, fromRow: int) -> tuple[list, list, bool]:
+	def _filledLayout(
+		self,
+		buffer: BrailleBufferSegment,
+		fromRow: int,
+		count: int,
+	) -> tuple[list, list, bool]:
 		"""Cut a block into rows by arithmetic, for the mode where every row is the same width.
 
 		The rows `_layout` walks to, without the walk: row n is the cells from `n * width` (see
@@ -702,6 +735,7 @@ class FlowRenderer:
 
 		:param buffer: the buffer holding the block.
 		:param fromRow: the first row of the block to keep.
+		:param count: how many rows to keep.
 		:return: the rows kept, their position maps, and whether the block continues past
 			them.
 		"""
@@ -711,7 +745,7 @@ class FlowRenderer:
 		total = max(1, -(-len(cells) // width))
 		rows: list[tuple[int, ...]] = []
 		positions: list[tuple[int, ...]] = []
-		for index in range(max(0, fromRow), min(total, max(0, fromRow) + self.maxRows)):
+		for index in range(max(0, fromRow), min(total, max(0, fromRow) + count)):
 			start = index * width
 			end = min(len(cells), start + width)
 			rows.append(tuple(cells[start:end]))

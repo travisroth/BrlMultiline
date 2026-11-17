@@ -18,9 +18,11 @@ from ._stubs import Region, installStubs
 
 installStubs()
 
-from brlMultiline.flow import NO_POSITION, BlockId, SourceBlock  # noqa: E402
+from brlMultiline.flow import NO_POSITION, BlockId, FetchResult, SourceBlock  # noqa: E402
+from brlMultiline.flowControl import FlowController  # noqa: E402
 from brlMultiline.flowIndent import planFor as indentPlanFor  # noqa: E402
 from brlMultiline.flowRender import FlowRenderer  # noqa: E402
+from brlMultiline.flowSources import FetchBudget  # noqa: E402
 from brlMultiline.flowTable import (  # noqa: E402
 	KEEP_END,
 	ColumnChoice,
@@ -69,13 +71,14 @@ def watchlistPlan(numCols=BAND, maxRows=1, overflow=None) -> ColumnPlan:
 	return planFor(measured, numCols, maxRows=maxRows, overflow=overflow)
 
 
-def renderer(plan=None, numCols=BAND) -> FlowRenderer:
+def renderer(plan=None, numCols=BAND, **options) -> FlowRenderer:
 	return FlowRenderer(
 		FakeHandler(),
 		numCols=numCols,
 		fillRows=True,
 		indentPlan=indentPlanFor([], numCols),
 		columnPlan=watchlistPlan(numCols) if plan is None else plan,
+		**options,
 	)
 
 
@@ -210,11 +213,6 @@ class TestDrawingARowInColumns(unittest.TestCase):
 		self.assertEqual(len(drawn.rows), 1)
 		self.assertEqual(textOf(drawn.rows[0])[0:7], "BERKSH ")
 
-	def test_aRowNeverGrowsPastTheCap(self):
-		"""A table read taller than this is not being read as a table."""
-		drawn = renderer().render(block(row("x" * 400, "1.00")))
-		self.assertLessEqual(len(drawn.rows), MAX_TABLE_ROWS)
-
 	def test_theRowIsTheFullWidthOfTheBand(self):
 		drawn = renderer().render(block(row("F", "9.10", "-0.05", "-0.5%")))
 		self.assertEqual(len(drawn.rows[0]), BAND)
@@ -335,24 +333,103 @@ class TestATableRowTallerThanTheBand(unittest.TestCase):
 	"""Every value is promised. A row too tall is a block with more rows, which is what a
 	paragraph longer than the band already is — not content quietly thrown away."""
 
-	def _tall(self):
-		return renderer().render(block(row("x" * 200, "1.00")))
+	CHUNK = 3
+
+	def _tall(self, fromRow=0):
+		return renderer(maxRows=self.CHUNK).render(block(row("x" * 200, "1.00")), fromRow=fromRow)
 
 	def test_itSaysThereIsMore(self):
 		"""Saying there is not, while dropping the rest, is the one thing that must not
 		happen: the reader is promised every value and cannot tell they are not getting one."""
 		self.assertTrue(self._tall().moreRows)
 
-	def test_theBandShowsWhatItCanHold(self):
-		self.assertEqual(len(self._tall().rows), MAX_TABLE_ROWS)
+	def test_itIsHeldInChunksAsAParagraphIs(self):
+		self.assertEqual(len(self._tall().rows), self.CHUNK)
+
+	def test_aChunkIsNotCutAtTheLayoutsRowLimit(self):
+		"""`MAX_TABLE_ROWS` shapes the layout; a chunk that short could never be panned past."""
+		self.assertGreater(len(renderer().render(block(row("x" * 400, "1.00"))).rows), MAX_TABLE_ROWS)
 
 	def test_theRestCanBeReached(self):
-		later = renderer().render(block(row("x" * 200, "1.00")), fromRow=MAX_TABLE_ROWS)
-		self.assertEqual(later.rowOffset, MAX_TABLE_ROWS)
+		later = self._tall(fromRow=self.CHUNK)
+		self.assertEqual(later.rowOffset, self.CHUNK)
 		self.assertTrue(later.rows)
 
 	def test_aRowThatFitsSaysThereIsNoMore(self):
 		self.assertFalse(renderer().render(block(row("AAPL", "1.00"))).moreRows)
+
+
+class FakeRowSource:
+	"""Rows of a table as blocks, in order, with the first row under the caret."""
+
+	def __init__(self, rows):
+		self.rows = rows
+		self.budget = FetchBudget()
+
+	def _at(self, index) -> FetchResult:
+		if not 0 <= index < len(self.rows):
+			return FetchResult.endOfStream("outside the table")
+		return FetchResult.found(block(self.rows[index], name=index))
+
+	def blockAtCursor(self, atObject=None) -> FetchResult:
+		return self._at(0)
+
+	def blockAfter(self, blockId) -> FetchResult:
+		return self._at(blockId.bookmark + 1)
+
+	def blockBefore(self, blockId) -> FetchResult:
+		return self._at(blockId.bookmark - 1)
+
+	def forget(self, *args, **kwargs) -> None:
+		pass
+
+
+class TestPanningThroughATallRow(unittest.TestCase):
+	"""A row taller than the band is panned through a display at a time, as a paragraph is."""
+
+	NUM_ROWS = 8
+
+	def setUp(self):
+		self.long = "".join(chr(ord("a") + n % 26) for n in range(600))
+		self.control = FlowController(
+			FakeRowSource([row("One", "1.00"), row(self.long, "2.00"), row("Three", "3.00")]),
+			renderer(),
+			numRows=self.NUM_ROWS,
+			movesCursor=False,
+		)
+		self.assertTrue(self.control.enterAtCursor())
+
+	def _texts(self) -> list[str]:
+		cells = self.control.cells()
+		return [textOf(cells[n * BAND : (n + 1) * BAND]) for n in range(self.NUM_ROWS)]
+
+	def _symbolColumn(self) -> str:
+		"""What the band shows of the first column, which is where the long cell wraps."""
+		return "".join(text[:6] for text in self._texts())
+
+	def test_panningReachesEveryRowOfTheLongCell(self):
+		seen = self._symbolColumn()
+		for _ in range(200):
+			if not self.control.panForward():
+				break
+			seen += self._symbolColumn()
+		self.assertIn(self.long[-10:], seen.replace(" ", ""))
+
+	def test_theRowAfterItComesOnlyOnceTheCellIsRead(self):
+		first = self._texts()
+		self.assertFalse(any(text.startswith("Three") for text in first))
+		while self.control.panForward():
+			pass
+		self.assertTrue(any(text.startswith("Three") for text in self._texts()))
+
+	def test_panningBackReturnsToTheStartOfTheCell(self):
+		start = self._texts()
+		moves = 0
+		while self.control.panForward():
+			moves += 1
+		for _ in range(moves):
+			self.assertTrue(self.control.panBack())
+		self.assertEqual(self._texts(), start)
 
 
 class TestARowWithNoPlan(unittest.TestCase):
