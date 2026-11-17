@@ -3,9 +3,9 @@
 Plan for measuring a browse mode table's columns from one read of the document, rather than
 from a read of every cell.
 
-Status: phase 0, the spike, is done; see "Phase 0 results". The widths matched on every table
-tried and the snapshot was about ten times faster, so phase 1 can go ahead. Nothing in the
-add-on is built yet. Builds on `flowTableSource.measure` and the held table in `flowTableGecko`; see
+Status: phases 0 and 1 are done. The spike matched the widths on every table tried, with the
+snapshot about ten times faster; see "Phase 0 results". `flowTableSnapshot` is built and unit
+tested, and `measure` does not use it yet, which is phase 2. Builds on `flowTableSource.measure` and the held table in `flowTableGecko`; see
 structured-presentation-plan.md, Table timing.
 
 ## The problem
@@ -103,12 +103,11 @@ cell path does; if it is not, the snapshot copies whatever it does.
 
 ### What counts as read
 
-A row the walk saw at least one cell of is read. A column of a read row with no cell is a
-coordinate with no cell, which is what `cellRegion` returning None means today: not found,
-rather than empty.
-
-A sampled row the walk never saw is not read, and is measured cell by cell. That is the rule
-`rowTextOf` already has, that a short answer means unread cells, not empty ones.
+A row the walk saw at least one cell of is read. A position the snapshot has no cell for is not
+known, rather than empty or missing, and `measure` asks the table for it as it does now. Two
+things put a position there: a row the walk never saw, and a cell merged down into the sample
+from a row above it, which starts outside the range read. Asking the table settles both, and
+costs nothing on a table whose rows are full, which is most of them.
 
 ## Where it plugs in
 
@@ -238,15 +237,15 @@ to 0.014 seconds against 0.036 to 0.079 cell by cell.
 
 ## Found along the way
 
-Both are in `measure` or what it calls, not in the snapshot.
+All three are in `measure` or what it calls, not in the snapshot.
 
-1. `declaredHeader` takes the innermost control field carrying `table-columnheadertext`. For
-   a cell holding a nested table, that is a cell of the nested table, so the outer column is
-   named after the inner table's header. On the test page it changed nothing measured, since
-   row one was borrowed first, but a table whose first row is not borrowed would get the
-   wrong name. The snapshot's outermost-cell rule gives the right one.
-2. A declared header in a column drawn without capitals is measured with its capitals, though
-   `_declaredRow` draws it without, so its label width is a few cells too wide.
-3. Not a fault, but a cost: a very long cell is translated in full to find its width, though
-   no column is wider than the display. Translating only as much as a column could ever show
-   would bound it, on every path.
+1. Fixed: `declaredHeader` took the innermost control field carrying
+   `table-columnheadertext`, which for a cell holding a nested table is a cell of the nested
+   table. Given the table's identifier it now takes the header of that table's own cell, as
+   the snapshot's walk does, and `measure` and `declaredHeaders` pass it.
+2. Still open: a declared header in a column drawn without capitals is measured with its
+   capitals, though `_declaredRow` draws it without, so its label width is a few cells too
+   wide.
+3. Fixed: a very long cell was translated in full to find its width. `measure` now translates
+   at most `MEASURED_TEXT`, 160 characters, of a cell or a header, which even contracted is
+   wider than any display; the cells drawn on the band keep all their text.

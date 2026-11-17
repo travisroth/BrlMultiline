@@ -94,7 +94,7 @@ def _findCellOf(table) -> Callable[[int, int], Any] | None:
 	return getattr(getattr(table, "IAccessibleTableObject", None), "accessibleAt", None)
 
 
-def _readsCellsAsNvda(document, nvdaLookup) -> bool:
+def hasNvdaCellLookup(document, nvdaLookup) -> bool:
 	""":return: whether the cell lookup a document would call is NVDA's own, with no override on
 	its class or on the document itself.
 	"""
@@ -116,7 +116,7 @@ def holdTable(handle) -> HeldTable | None:
 	except ImportError:
 		return None
 	document = handle.document
-	if not _readsCellsAsNvda(document, Gecko_ia2._getTableCellAt):
+	if not hasNvdaCellLookup(document, Gecko_ia2._getTableCellAt):
 		return None
 	try:
 		findCell = _findCellOf(document.getNVDAObjectFromIdentifier(*handle.tableID))
