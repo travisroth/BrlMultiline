@@ -670,7 +670,9 @@ Still owed, from the review of 2026.3.3:
    reads every selected column across its sample, with nothing to stop it on a slow application.
    It needs a deadline, after which the columns not yet read keep their default width. A column
    the deadline cut off is unmeasured, not empty, and must not be hidden or narrowed as an empty
-   one is. See "And empty in the sample is not the same as empty", under M3d.
+   one is. See "And empty in the sample is not the same as empty", under M3d. For browse mode
+   tables, table-snapshot-plan.md plans measuring from one read of the document instead of a
+   read per cell, which makes the limit rarer to reach but does not replace it.
 2. **One table lookup for a pin's saved layout check.** `GlobalPlugin._hasSavedLayout` reads the
    table's headings to find its saved layout before the pin's build holds the table, so those
    reads find the table again for each cell. The handle and layout it finds can be passed to the

@@ -19,6 +19,9 @@ manifest.ini
 *.msg
 *.eml
 
+# What the table snapshot probe saves holds the text of whatever table it was run on.
+spikes/tableSnapshotOut/
+
 # The reader's braille substitutions, written by the add-on as it runs, and the
 # candidates it compiles to check them. See addon/globalPlugins/brlMultiline/userBrailleTable.py.
 addon/brailleTables/brlMultiline-user*
