@@ -638,6 +638,59 @@ class TestAColumnDrawnWithoutCapitalSigns(unittest.TestCase):
 		self.assertEqual(flowTableSource.withoutCapitals("BRK.B"), "brk.b")
 
 
+class TestADeclaredHeaderInAColumnDrawnWithoutCapitalSigns(unittest.TestCase):
+	"""A declared header is drawn lowered in such a column, so it is measured lowered too.
+
+	The harness translates one cell per character, so capital signs are stood in for by a
+	width that counts each capital twice.
+	"""
+
+	HEADER = "SYMBOLS"
+
+	def setUp(self):
+		patcher = mock.patch.object(
+			flowTableSource,
+			"widthOf",
+			side_effect=lambda text: len(text) + sum(1 for character in text if character.isupper()),
+		)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def _handle(self):
+		document = FakeTableDocument(
+			[list(line) for line in WATCHLIST],
+			row=2,
+			col=1,
+			columnHeaders={1: self.HEADER, 2: "LAST"},
+		)
+		return tableAt(FakeNavigatorObject("a page", treeInterceptor=document))
+
+	def _measured(self, plainCase):
+		return {item.index: item for item in measure(self._handle(), plainCase=plainCase)}
+
+	def test_aHeaderEachCellDeclaresIsMeasuredAsDrawn(self):
+		measured = self._measured(plainCase=(1,))
+		self.assertTrue(measured[1].declared)
+		self.assertEqual(measured[1].labelWidth, len(self.HEADER))
+
+	def test_aHeaderTheTableStatesIsMeasuredAsDrawn(self):
+		"""As Excel and list views name their columns, all at once."""
+		with mock.patch.object(flowTableSource, "columnHeadersOf", return_value={1: self.HEADER, 2: "LAST"}):
+			measured = self._measured(plainCase=(1,))
+		self.assertEqual(measured[1].labelWidth, len(self.HEADER))
+
+	def test_theLabelKeepsItsCapitals(self):
+		"""What the designer and the reports show is the header as the table wrote it."""
+		self.assertEqual(self._measured(plainCase=(1,))[1].label, self.HEADER)
+
+	def test_anotherColumnKeepsItsCapitalSigns(self):
+		measured = self._measured(plainCase=(1,))
+		self.assertEqual(measured[2].labelWidth, 2 * len("LAST"))
+
+	def test_aColumnDrawnWithCapitalsIsMeasuredWithThem(self):
+		self.assertEqual(self._measured(plainCase=())[1].labelWidth, 2 * len(self.HEADER))
+
+
 class TestStayingWithTheTable(unittest.TestCase):
 	"""A layout must not outlive its table. Easy Table Navigator clears its bindings on every
 	focus change for the same reason, and a watchlist's columns carried onto the next page are

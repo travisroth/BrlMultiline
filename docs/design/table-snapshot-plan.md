@@ -257,15 +257,16 @@ through on the Monarch. That was the renderer, not the snapshot, and is fixed in
 
 ## Found along the way
 
-All three are in `measure` or what it calls, not in the snapshot.
+All three were in `measure` or what it calls, not in the snapshot, and all three are fixed.
 
 1. Fixed: `declaredHeader` took the innermost control field carrying
    `table-columnheadertext`, which for a cell holding a nested table is a cell of the nested
    table. Given the table's identifier it now takes the header of that table's own cell, as
    the snapshot's walk does, and `measure` and `declaredHeaders` pass it.
-2. Still open: a declared header in a column drawn without capitals is measured with its
-   capitals, though `_declaredRow` draws it without, so its label width is a few cells too
-   wide.
+2. Fixed: a declared header in a column drawn without capitals was measured with its
+   capitals, though `_declaredRow` draws it without, so its label width was a few cells too
+   wide. `measure` now lowers it first, for headers the table states and those its cells
+   declare; the label keeps the table's own capitals.
 3. Fixed: a very long cell was translated in full to find its width. `measure` now translates
    at most `MEASURED_TEXT`, 160 characters, of a cell or a header, which even contracted is
    wider than any display; the cells drawn on the band keep all their text.

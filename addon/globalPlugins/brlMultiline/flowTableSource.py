@@ -936,7 +936,7 @@ def measure(
 	for column, said in (stated or {}).items():
 		if said and column in labels:
 			labels[column] = said
-			headers[column] = headerWidth(said)
+			headers[column] = headerWidth(withoutCapitals(said) if column in plain else said)
 			declared.add(column)
 	with stageTimes.stage("sample rows"):
 		rows = _sampleRows(handle, sample)
@@ -996,7 +996,7 @@ def measure(
 						said = declaredHeader(info, tableID=handle.tableID)
 				if said:
 					labels[column] = said
-					headers[column] = headerWidth(said)
+					headers[column] = headerWidth(withoutCapitals(said) if column in plain else said)
 					declared.add(column)
 			if row == HEADER_ROW and borrowRowOne and not labels[column]:
 				# Nothing declared, so the guess. See `HEADER_ROW`.
