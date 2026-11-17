@@ -27,7 +27,7 @@ import documentBase
 from braille.regions.base import Region, TextRegion
 from logHandler import log
 
-from . import flowObjectTable, flowTableGecko, stageTimes
+from . import flowObjectTable, flowTableGecko, flowTableSnapshot, stageTimes
 from .flow import BlockId, CallCancelled, FetchResult, SourceBlock
 from .flowSources import FetchBudget
 from .flowTable import SEPARATOR_CELL, Measurement, RowCell, cellPosition, positionParts
@@ -940,16 +940,25 @@ def measure(
 			declared.add(column)
 	with stageTimes.stage("sample rows"):
 		rows = _sampleRows(handle, sample)
+	with stageTimes.stage("snapshot"):
+		snapshot = flowTableSnapshot.takeSnapshot(handle, rows)
 	for row in rows:
-		# One read for the whole row where the document offers it, and the ordinary cell at a
-		# time where it does not. Only the source of the text differs; everything below this
-		# is the same measurement either way. See `rowTextOf`.
+		# One read for the whole row where the document offers it, the snapshot's cells where
+		# it has them, and the ordinary cell at a time otherwise. Only the source of the text
+		# differs; everything below this is the same measurement either way. See `rowTextOf`
+		# and `flowTableSnapshot`.
 		with stageTimes.stage("row text"):
 			saidRow = rowTextOf(handle, row, 1, handle.numCols)
 		for column in columns:
 			info = None
+			known = None if snapshot is None or saidRow is not None else snapshot.cellAt(row, column)
 			if saidRow is not None:
 				text = saidRow[column - 1]
+				if column in plain:
+					text = withoutCapitals(text)
+				size = widthOf(text)
+			elif known is not None:
+				text = known.text[:MEASURED_TEXT]
 				if column in plain:
 					text = withoutCapitals(text)
 				size = widthOf(text)
@@ -970,17 +979,21 @@ def measure(
 			found.add(column)
 			widths[column] = max(widths[column], size)
 			if (
-				info is not None
+				(info is not None or known is not None)
 				and stated is None
 				and not labels[column]
 				and asked[column] < HEADER_TRIES
 				and column not in declared
 			):
 				# Asked of up to `HEADER_TRIES` cells, stopping at the first answer, as in
-				# `declaredHeaders`.
+				# `declaredHeaders`. A snapshot's cell answers at the same point under the same
+				# rule, so a column is declared exactly when it would be read cell by cell.
 				asked[column] += 1
-				with stageTimes.stage("declared header"):
-					said = declaredHeader(info, tableID=handle.tableID)
+				if known is not None:
+					said = known.header
+				else:
+					with stageTimes.stage("declared header"):
+						said = declaredHeader(info, tableID=handle.tableID)
 				if said:
 					labels[column] = said
 					headers[column] = headerWidth(said)

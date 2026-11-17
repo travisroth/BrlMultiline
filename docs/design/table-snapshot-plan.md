@@ -3,9 +3,10 @@
 Plan for measuring a browse mode table's columns from one read of the document, rather than
 from a read of every cell.
 
-Status: phases 0 and 1 are done. The spike matched the widths on every table tried, with the
-snapshot about ten times faster; see "Phase 0 results". `flowTableSnapshot` is built and unit
-tested, and `measure` does not use it yet, which is phase 2. Builds on `flowTableSource.measure` and the held table in `flowTableGecko`; see
+Status: done. The spike matched the widths on every table tried, with the snapshot about ten
+times faster; see "Phase 0 results". `measure` takes the snapshot and reads only the positions
+it does not know, and in NVDA it measures the watchlist about ten times faster; see "Phase 3
+results". Builds on `flowTableSource.measure` and the held table in `flowTableGecko`; see
 structured-presentation-plan.md, Table timing.
 
 ## The problem
@@ -234,6 +235,25 @@ to 0.014 seconds against 0.036 to 0.079 cell by cell.
    where long text costs, and 200,000 characters is a sound limit for it.
 6. Question 4 again: the search by attribute found rows in 0.000 to 0.001 seconds on these
    small tables, against 0.003 through the held table.
+
+## Phase 3 results
+
+Timed with `stageTimes` in Chrome, which logs a table that takes over a quarter second to show.
+
+1. The watchlist, 22 by 21, measured in 0.077 to 0.080 seconds over four runs, with no cell
+   read one at a time. The snapshot was 0.045 of that, nearly all of it the one read, and
+   translating the sampled text 0.030. Measured cell by cell, it took about 0.8 seconds.
+2. The bank statement table was not logged, so the whole of showing it took under a quarter
+   second; measuring it cell by cell had taken 0.23 seconds alone.
+3. Of the test tables only the 250,000 character cell was logged. Its range is past
+   `TOO_MUCH_TEXT`, so it was measured cell by cell, in 0.037 seconds. Showing it took 0.615
+   seconds, 0.464 of it translating the long cell to draw it, which drawing still does in full.
+4. The rest of a table's show time is drawing: each visible cell is read one at a time, at
+   about four milliseconds each, about 0.24 seconds on the watchlist. See "Later, not in this
+   plan", item 1.
+
+Checking the long cells found that a table row taller than four band rows could not be panned
+through on the Monarch. That was the renderer, not the snapshot, and is fixed in its own commit.
 
 ## Found along the way
 

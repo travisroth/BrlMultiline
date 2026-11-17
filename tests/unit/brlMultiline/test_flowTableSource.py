@@ -15,6 +15,7 @@ was.
 """
 
 import unittest
+from unittest import mock
 
 from ._stubs import (
 	FakeFieldCommand,
@@ -1120,7 +1121,8 @@ class TestALongCellIsMeasuredFromItsStart(unittest.TestCase):
 		document = FakeTableDocument([["Entry", "Notes"], ["One", self.LONG], ["Two", "short"]], row=2, col=1)
 		measured = {each.index: each for each in measure(tableAt(FakeFocus(document)))}
 		self.assertEqual(
-			measured[2].width, flowTableSource.widthOf(self.LONG[: flowTableSource.MEASURED_TEXT]),
+			measured[2].width,
+			flowTableSource.widthOf(self.LONG[: flowTableSource.MEASURED_TEXT]),
 		)
 		self.assertLessEqual(measured[2].width, flowTableSource.MEASURED_TEXT)
 
@@ -1141,3 +1143,93 @@ class TestALongCellIsMeasuredFromItsStart(unittest.TestCase):
 		region = cellRegion(tableAt(FakeFocus(document)), 2, 2)
 		self.assertIsNotNone(region)
 		self.assertEqual(region.rawText, self.LONG.strip())
+
+
+class TestMeasuringFromASnapshot(unittest.TestCase):
+	"""`measure` with the sampled rows read in one go gives what it gives reading them cell by
+	cell, and reads only the positions the snapshot does not know."""
+
+	ROWS = [
+		["Symbol", "Last", "Change"],
+		["AAPL", "182.50", "+1.25"],
+		["BRK.B", "402.15", "+3.40"],
+		["F", "9.10", None],
+		["T", "17.00", "-0.05"],
+	]
+	HEADERS = {1: "Ticker", 3: "Move"}
+
+	def document(self, headers=None, hasHeaderRow=True):
+		document = FakeTableDocument([list(row) for row in self.ROWS], row=2, col=1, columnHeaders=headers)
+		document.hasHeaderRow = hasHeaderRow
+		return document
+
+	def snapshotOf(self, document, rows, leaveOut=()):
+		from brlMultiline.flowTableSnapshot import Snapshot, SnapshotCell
+
+		cells = [
+			SnapshotCell(row, column, said.strip(), (document.columnHeaders or {}).get(column, ""))
+			for row in rows
+			for column, said in enumerate(document.rows[row - 1], start=1)
+			if said is not None and (row, column) not in leaveOut
+		]
+		return Snapshot(cells=cells, rowsRead=set(rows))
+
+	def measured(self, document, snapshot=None, plainCase=()):
+		with mock.patch.object(flowTableSource.flowTableSnapshot, "takeSnapshot", return_value=snapshot):
+			return measure(tableAt(FakeFocus(document)), plainCase=plainCase)
+
+	def assertSameEitherWay(self, headers=None, hasHeaderRow=True, plainCase=()):
+		ordinary = self.measured(self.document(headers, hasHeaderRow), plainCase=plainCase)
+		document = self.document(headers, hasHeaderRow)
+		fromSnapshot = self.measured(document, self.snapshotOf(document, range(1, 6)), plainCase=plainCase)
+		self.assertEqual(fromSnapshot, ordinary)
+		return document
+
+	def test_aTableMeasuresTheSameEitherWay(self):
+		self.assertSameEitherWay()
+
+	def test_withDeclaredHeaders(self):
+		self.assertSameEitherWay(self.HEADERS)
+
+	def test_withDeclaredHeadersAndNoHeaderRow(self):
+		"""So the header question reaches the body rows, where the snapshot answers it."""
+		self.assertSameEitherWay(self.HEADERS, hasHeaderRow=False)
+
+	def test_withColumnsDrawnWithoutCapitals(self):
+		self.assertSameEitherWay(plainCase=(1, 2, 3))
+
+	def test_aSnapshottedCellIsNotReadOnItsOwn(self):
+		document = self.assertSameEitherWay()
+		self.assertEqual(document.reads, [(4, 3)])
+
+	def test_aPositionTheSnapshotDoesNotKnowIsAskedOfTheTable(self):
+		"""Such as a cell merged down into the sample from a row above it."""
+		document = self.document()
+		snapshot = self.snapshotOf(document, range(1, 6), leaveOut={(3, 2)})
+		self.assertEqual(self.measured(document, snapshot), self.measured(self.document()))
+		self.assertEqual(sorted(document.reads), [(3, 2), (4, 3)])
+
+	def test_aRowTheSnapshotDidNotReadIsReadCellByCell(self):
+		document = self.document()
+		self.assertEqual(
+			self.measured(document, self.snapshotOf(document, (1, 2, 3))), self.measured(self.document()),
+		)
+		self.assertEqual(sorted(document.reads), [(4, 1), (4, 2), (4, 3), (5, 1), (5, 2), (5, 3)])
+
+	def test_theSnapshotIsTakenForTheSampledRows(self):
+		document = self.document()
+		with mock.patch.object(flowTableSource.flowTableSnapshot, "takeSnapshot", return_value=None) as taken:
+			measure(tableAt(FakeFocus(document)))
+		handle, rows = taken.call_args.args
+		self.assertIs(handle.document, document)
+		self.assertEqual(rows, flowTableSource._sampleRows(handle, flowTableSource.MEASURE_ROWS))
+
+	def test_aLongCellFromTheSnapshotIsMeasuredFromItsStart(self):
+		document = self.document()
+		snapshot = self.snapshotOf(document, range(1, 6))
+		snapshot.cells[3].text = "word " * 1000
+		measured = {each.index: each for each in self.measured(document, snapshot)}
+		self.assertEqual(
+			measured[snapshot.cells[3].column].width,
+			flowTableSource.widthOf(snapshot.cells[3].text[: flowTableSource.MEASURED_TEXT]),
+		)

@@ -95,8 +95,7 @@ Read the files in this order:
 18. [table-snapshot-plan.md](table-snapshot-plan.md) — the plan for measuring a browse mode
    table's columns from one read of the document rather than a read of every cell, walking the
    cell fields NVDA's buffer already has and measuring their text through liblouis as now.
-   The spike said go ahead, and the module is built and unit tested; `measure` does not use it
-   yet. Read it before changing how `flowTableSource.measure` reads cells.
+   Built and tried in NVDA, where it measures the watchlist about ten times faster. Read it before changing how `flowTableSource.measure` reads cells.
 19. [findings-from-code.md](findings-from-code.md) — hardware reports, review findings and earlier
    designs that were recorded only in code comments until the comments were trimmed, grouped by
    subsystem, each with the commit that holds the original wording. Read it when a rule in the
