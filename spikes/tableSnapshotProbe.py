@@ -392,7 +392,7 @@ def _cellByCell(handle, rows: list[int], times: dict) -> dict:
 			with _timed(times, "cell text"):
 				text = source._textOf(info)
 			with _timed(times, "cell headers"):
-				header = source.declaredHeader(info)
+				header = source.declaredHeader(info, tableID=handle.tableID)
 			found[(row, column)] = (text, header, getattr(info, "_startOffset", None))
 	return found
 

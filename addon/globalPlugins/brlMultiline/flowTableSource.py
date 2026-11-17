@@ -57,6 +57,14 @@ MEASURE_ROWS = 8
 A band's worth, as the indent plan reads. Truncation covers the rare wider cell.
 """
 
+MEASURED_TEXT = 160
+"""How much of a cell's or a header's text is translated to find its width, in characters.
+
+No column is wider than the widest display, and even contracted braille rarely takes fewer
+cells than half the characters, so a width past this is past any column, and translating the
+rest of a long cell would only cost time.
+"""
+
 
 def tableDocumentFor(obj) -> Any | None:
 	"""What can navigate the table this object is in.
@@ -441,15 +449,26 @@ class TableCellRegion(TextRegion):
 	A `TextRegion`; see the module docstring. Keeps the cell's position for routing.
 	"""
 
-	def __init__(self, document, info, live: bool = False, plainCase: bool = False) -> None:
+	def __init__(
+		self,
+		document,
+		info,
+		live: bool = False,
+		plainCase: bool = False,
+		limit: int | None = None,
+	) -> None:
 		"""
 		:param document: what navigates the table, for moving the caret.
 		:param info: the cell's position, as `_getTableCellAt` returned it.
 		:param live: whether this flow moves the reader's own cursor. A viewer routes nowhere.
 		:param plainCase: whether this column is drawn without capital signs. See
 			`withoutCapitals`. Routing is unaffected, since it goes to the cell, not a character.
+		:param limit: how many characters of the cell to keep, or None for all of them. For a
+			region that is only measured; see `MEASURED_TEXT`.
 		"""
 		said = _textOf(info)
+		if limit is not None:
+			said = said[:limit]
 		super().__init__(withoutCapitals(said) if plainCase else said)
 		self.document = document
 		self.info = info
@@ -478,15 +497,21 @@ class TableCellRegion(TextRegion):
 		return f"<TableCellRegion {self.rawText!r}>"
 
 
-def declaredHeader(info, axis: str = "column") -> str:
+def declaredHeader(info, axis: str = "column", tableID=None) -> str:
 	""":return: the header a document declares for a cell's column or row, or "" if it declares none.
 
 	The `table-columnheadertext` attribute, which NVDA resolves from `<th>`, `scope=` and
 	`headers=` through IAccessible2, and from UIA and Word by other routes. It handles
 	multi-row headers, header columns and tables whose first row is data, which row one cannot.
 
+	A cell's fields include those of any table nested in it, and of any table it is nested in,
+	each with its own cells' headers. With `tableID`, the header is the one on the outermost
+	cell of that table, which is the cell itself. Without it, or where no field names that
+	table, the innermost field that carries one is taken.
+
 	:param info: a cell's position, as `_getTableCellAt` returned it.
 	:param axis: "column" for the header above the cell, "row" for the one beside it.
+	:param tableID: the table the cell belongs to, as its fields name it in `table-id`.
 	:return: the header text, or "" where the document declares none.
 	"""
 	attribute = HEADER_ATTRIBUTES.get(axis)
@@ -506,12 +531,13 @@ def declaredHeader(info, axis: str = "column") -> str:
 		return ""
 	found = ""
 	for item in fields:
-		# The innermost wins. A cell sits inside a row and a table and the attribute is only
-		# ever put on the cell, but taking the last one asked and letting the loop run is the
-		# rule that stays right if that ever stops being true.
 		if getattr(item, "command", None) != "controlStart":
 			continue
-		text = (getattr(item, "field", None) or {}).get(attribute)
+		field = getattr(item, "field", None) or {}
+		if tableID is not None and field.get("table-id") == tableID and "table-rownumber" in field:
+			found = field.get(attribute) or ""
+			break
+		text = field.get(attribute)
 		if text:
 			found = text
 	# Written as one line whatever the document did with it. A cell with two header cells
@@ -558,7 +584,7 @@ def declaredHeaders(
 			region = cellRegion(handle, at, column, live=False)
 			if region is None:
 				continue
-			said = declaredHeader(region.info)
+			said = declaredHeader(region.info, tableID=handle.tableID)
 			if said:
 				found[column] = said
 		if len(found) == len(wanted):
@@ -589,12 +615,13 @@ def widthOf(text: str) -> int:
 	""":return: how wide a piece of text is in braille cells, by translating it.
 
 	A character count is not a braille width. For text that arrives as a string, such as a
-	declared header or a row from `rowTextOf`.
+	declared header or a row from `rowTextOf`. Only the first `MEASURED_TEXT` characters.
 
 	:param text: what will be drawn.
 	"""
 	if not text:
 		return 0
+	text = text[:MEASURED_TEXT]
 	try:
 		with stageTimes.stage("text width"):
 			region = TextRegion(text)
@@ -778,6 +805,7 @@ def cellRegion(
 	column: int,
 	live: bool = False,
 	plainCase: bool = False,
+	limit: int | None = None,
 ):
 	""":return: a region for one cell of a table, or None where there is no such cell.
 
@@ -790,6 +818,8 @@ def cellRegion(
 	:param live: whether the region may move the reader's cursor.
 	:param plainCase: whether this column is drawn without capital signs. Applied here, where
 		the text becomes a region and is translated, so every re-read applies it again.
+	:param limit: how many characters of the cell to translate, or None for all. See
+		`TableCellRegion`.
 	"""
 	try:
 		with stageTimes.stage("cell lookup"):
@@ -808,7 +838,7 @@ def cellRegion(
 	if info is None:
 		return None
 	with stageTimes.stage("cell text"):
-		region = TableCellRegion(handle.document, info, live=live, plainCase=plainCase)
+		region = TableCellRegion(handle.document, info, live=live, plainCase=plainCase, limit=limit)
 	with stageTimes.stage("cell translate"):
 		region.update()
 	return region
@@ -924,7 +954,14 @@ def measure(
 					text = withoutCapitals(text)
 				size = widthOf(text)
 			else:
-				region = cellRegion(handle, row, column, live=live, plainCase=column in plain)
+				region = cellRegion(
+					handle,
+					row,
+					column,
+					live=live,
+					plainCase=column in plain,
+					limit=MEASURED_TEXT,
+				)
 				if region is None:
 					continue
 				text = region.rawText
@@ -943,7 +980,7 @@ def measure(
 				# `declaredHeaders`.
 				asked[column] += 1
 				with stageTimes.stage("declared header"):
-					said = declaredHeader(info)
+					said = declaredHeader(info, tableID=handle.tableID)
 				if said:
 					labels[column] = said
 					headers[column] = headerWidth(said)

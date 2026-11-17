@@ -1389,7 +1389,7 @@ class FakeTableDocument(FakeTreeInterceptor):
 		self.carets.append(((row, column), holder))
 		fields = None
 		if self.columnHeaders:
-			fields = {"table-id": self.tableID, "table-columnnumber": column}
+			fields = {"table-id": self.tableID, "table-rownumber": row, "table-columnnumber": column}
 			said = self.columnHeaders.get(column)
 			if said:
 				fields["table-columnheadertext"] = said

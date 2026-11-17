@@ -724,6 +724,86 @@ class TestTheHeaderTheDocumentDeclares(unittest.TestCase):
 		region.info.getTextWithFields = lambda formatConfig=None: [outer, inner, "AAPL"]
 		self.assertEqual(flowTableSource.declaredHeader(region.info), "the cell's")
 
+	def test_aCellHoldingANestedTableIsNamedByItsOwnTable(self):
+		"""The nested table's cells come after the cell's own field and carry headers of their
+		own, which name the inner table's columns, not this one."""
+		document, handle = self.document(self.MARKED)
+		region = flowTableSource.cellRegion(handle, 2, 2)
+		cell = FakeFieldCommand(
+			"controlStart",
+			{"table-id": handle.tableID, "table-rownumber": 2, "table-columnheadertext": "Details"},
+		)
+		nested = FakeFieldCommand(
+			"controlStart",
+			{"table-id": "inner", "table-rownumber": 1, "table-columnheadertext": "Qty"},
+		)
+		region.info.getTextWithFields = lambda formatConfig=None: [cell, nested, "12"]
+		self.assertEqual(flowTableSource.declaredHeader(region.info, tableID=handle.tableID), "Details")
+		self.assertEqual(flowTableSource.declaredHeader(region.info), "Qty")
+
+	def test_aCellOfANestedTableIsNamedByItsOwnTableToo(self):
+		"""The cell it sits in comes first, as an ancestor, with the outer table's header."""
+		document, handle = self.document(self.MARKED)
+		region = flowTableSource.cellRegion(handle, 2, 2)
+		outer = FakeFieldCommand(
+			"controlStart",
+			{"table-id": "outer", "table-rownumber": 2, "table-columnheadertext": "Details"},
+		)
+		cell = FakeFieldCommand(
+			"controlStart",
+			{"table-id": handle.tableID, "table-rownumber": 1, "table-columnheadertext": "Qty"},
+		)
+		region.info.getTextWithFields = lambda formatConfig=None: [outer, cell, "12"]
+		self.assertEqual(flowTableSource.declaredHeader(region.info, tableID=handle.tableID), "Qty")
+
+	def test_aCellOfTheTableThatDeclaresNothingSaysNothing(self):
+		"""Even where a table nested in it declares a header."""
+		document, handle = self.document(self.MARKED)
+		region = flowTableSource.cellRegion(handle, 2, 2)
+		cell = FakeFieldCommand("controlStart", {"table-id": handle.tableID, "table-rownumber": 2})
+		nested = FakeFieldCommand(
+			"controlStart",
+			{"table-id": "inner", "table-rownumber": 1, "table-columnheadertext": "Qty"},
+		)
+		region.info.getTextWithFields = lambda formatConfig=None: [cell, nested, "12"]
+		self.assertEqual(flowTableSource.declaredHeader(region.info, tableID=handle.tableID), "")
+
+	def test_measureNamesAColumnByItsOwnTable(self):
+		"""A table whose first row is data, so the header is asked of the cells."""
+		document, handle = self.document(self.MARKED)
+
+		def withNested(row, column, info=None):
+			fields = [
+				FakeFieldCommand(
+					"controlStart",
+					{
+						"table-id": handle.tableID,
+						"table-rownumber": row,
+						"table-columnheadertext": self.MARKED[column],
+					},
+				),
+			]
+			if column == 2:
+				fields.append(
+					FakeFieldCommand(
+						"controlStart",
+						{"table-id": "inner", "table-rownumber": 1, "table-columnheadertext": "Qty"},
+					),
+				)
+			return lambda formatConfig=None: fields
+
+		ownLookup = document._getTableCellAt
+
+		def lookup(tableID, startPos, row, column):
+			info = ownLookup(tableID, startPos, row, column)
+			info.getTextWithFields = withNested(row, column)
+			return info
+
+		document._getTableCellAt = lookup
+		measured = {each.index: each for each in flowTableSource.measure(handle)}
+		self.assertEqual(measured[2].label, "Price")
+		self.assertTrue(measured[2].declared)
+
 	def test_severalHeaderCellsBecomeOneRow(self):
 		"""NVDA joins a cell's header cells with newlines, and a pinned header row is one row."""
 		document, handle = self.document({1: "Quarter\nEnding"})
@@ -1028,3 +1108,36 @@ class TestAColumnThatDeclaresNoHeader(unittest.TestCase):
 		source.setColumns((2,))
 		self.assertIn("Last", source.headerBlock().region.rawText)
 		self.assertTrue(document.reads)
+
+
+class TestALongCellIsMeasuredFromItsStart(unittest.TestCase):
+	"""No column is wider than a display, so past `MEASURED_TEXT` characters the rest of a
+	cell cannot change its width, and translating it only costs time."""
+
+	LONG = "word " * 10000
+
+	def test_aLongCellIsMeasuredFromItsFirstCharacters(self):
+		document = FakeTableDocument([["Entry", "Notes"], ["One", self.LONG], ["Two", "short"]], row=2, col=1)
+		measured = {each.index: each for each in measure(tableAt(FakeFocus(document)))}
+		self.assertEqual(
+			measured[2].width, flowTableSource.widthOf(self.LONG[: flowTableSource.MEASURED_TEXT]),
+		)
+		self.assertLessEqual(measured[2].width, flowTableSource.MEASURED_TEXT)
+
+	def test_aShortCellIsMeasuredWhole(self):
+		document = FakeTableDocument([["Entry", "Notes"], ["One", "short"]], row=2, col=1)
+		measured = {each.index: each for each in measure(tableAt(FakeFocus(document)))}
+		self.assertEqual(measured[2].width, flowTableSource.widthOf("short"))
+
+	def test_textThatArrivesAsAStringIsCutTheSameWay(self):
+		self.assertEqual(
+			flowTableSource.widthOf(self.LONG),
+			flowTableSource.widthOf(self.LONG[: flowTableSource.MEASURED_TEXT]),
+		)
+
+	def test_aCellDrawnOnTheBandIsNotCut(self):
+		"""Only a region that is measured is cut; one that is drawn keeps all of its text."""
+		document = FakeTableDocument([["Entry", "Notes"], ["One", self.LONG.strip()]], row=2, col=1)
+		region = cellRegion(tableAt(FakeFocus(document)), 2, 2)
+		self.assertIsNotNone(region)
+		self.assertEqual(region.rawText, self.LONG.strip())

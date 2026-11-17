@@ -2643,9 +2643,9 @@ class TestAskingMoreThanOneCellForAHeader(unittest.TestCase):
 		asked = []
 		real = flowTableSource.declaredHeader
 
-		def counted(info, axis="column"):
+		def counted(info, axis="column", tableID=None):
 			asked.append(info)
-			return real(info, axis)
+			return real(info, axis, tableID)
 
 		flowTableSource.declaredHeader = counted
 		try:
