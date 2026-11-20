@@ -249,13 +249,12 @@ class TableCommands:
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
 			return
-		if isinstance(handle.document, flowObjectTable.ObjectTable):
-			# A list or a worksheet is shown by NVDA a cell or an item at a time through regions
-			# of its own, not through the browse mode line this replaces.
+		if isinstance(handle.document, flowObjectTable.SheetTable):
+			# A worksheet's cell is drawn by the Excel module's own region, which this does not
+			# replace.
 			ui.message(
-				# Translators: reported when rows on one line are asked for in a table that is not
-				# on a web page or in a document read in browse mode.
-				_("Rows on one line are for tables in browse mode"),
+				# Translators: reported when rows on one line are asked for in a spreadsheet.
+				_("Rows on one line are not available in a worksheet"),
 			)
 			return
 		try:

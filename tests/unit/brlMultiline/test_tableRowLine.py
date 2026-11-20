@@ -13,14 +13,18 @@ import unittest
 
 from ._stubs import (
 	CursorManagerRegion,
+	FakeGrid,
+	FakeNavigatorObject,
 	FakeTableDocument,
 	FakeTextInfo,
+	NVDAObjectRegion,
+	TextInfoRegion,
 	installStubs,
 )
 
 installStubs()
 
-from brlMultiline import patches, tableRowLine  # noqa: E402
+from brlMultiline import flowObjectTable, patches, tableRowLine  # noqa: E402
 from brlMultiline.flowTableSource import tableAt  # noqa: E402
 
 GRID = [
@@ -244,6 +248,267 @@ class TestPanningPastTheRow(RowLineTestCase):
 		# From the last cell of the row, which is where the page resumes.
 		self.assertEqual(fromWhere, [("+0.1", 1)])
 		self.assertEqual(caretCells(page), [])
+
+
+FILES = [
+	["report.docx", "09:14", "Word document"],
+	["notes.md", "11:02", "Markdown"],
+	["photo.jpg", "12:30", "JPEG image"],
+]
+
+
+class FakeBrailleHandler:
+	"""The handler a redraw is asked of, holding the regions NVDA last built."""
+
+	def __init__(self, *regions):
+		self.mainBuffer = type("Buffer", (), {})()
+		self.mainBuffer.regions = list(regions)
+		self.gainedFocus = []
+
+	def handleGainFocus(self, obj, shouldAutoTether=True):
+		self.gainedFocus.append(obj)
+
+
+class ObjectRowLineTestCase(unittest.TestCase):
+	"""A list whose cells are objects, which is File Explorer's file list and Outlook's."""
+
+	def setUp(self):
+		import api
+		import braille
+
+		tableRowLine.clear()
+		self.addCleanup(tableRowLine.clear)
+		self.grid = FakeGrid(FILES, headers=["Name", "Date modified", "Type"], columnCount=3)
+		for row in self.grid.items:
+			row.actions = 0
+			row.doAction = lambda row=row: setattr(row, "actions", row.actions + 1)
+		self.focus = self.grid.item(1)
+		self.navigator = None
+		for name, answer in (
+			("getFocusObject", lambda: self.focus),
+			("getNavigatorObject", lambda: self.navigator or self.focus),
+		):
+			self.addCleanup(setattr, api, name, getattr(api, name))
+			setattr(api, name, answer)
+		self.handler = FakeBrailleHandler()
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = self.handler
+
+	def ask(self, columns=()):
+		tableRowLine.request(tableAt(self.focus), columns)
+
+	def region(self, obj=None, cls=NVDAObjectRegion):
+		region = cls(obj or self.focus)
+		self.assertTrue(tableRowLine.adoptObject(region))
+		region.update()
+		self.handler.mainBuffer.regions = [region]
+		return region
+
+	def focusedCells(self):
+		return [
+			(row.positionInfo["indexInGroup"], cell.columnNumber)
+			for row in self.grid.items
+			for cell in row.cellObjects
+			if cell.focused
+		]
+
+
+class TestAdoptingAListsRegion(ObjectRowLineTestCase):
+	def test_nothingIsAdoptedWhileNothingIsAsked(self):
+		self.assertFalse(tableRowLine.adoptObject(NVDAObjectRegion(self.focus)))
+
+	def test_aBrowseModeRequestLeavesObjectRegionsAlone(self):
+		tableRowLine.request(tableAt(Page(GRID, row=2, col=2)))
+		self.assertFalse(tableRowLine.adoptObject(NVDAObjectRegion(self.focus)))
+
+	def test_aListRequestLeavesBrowseModeRegionsAlone(self):
+		self.ask()
+		self.assertFalse(tableRowLine.adopt(CursorManagerRegion(Page(GRID))))
+
+	def test_onlyTheFocusesRegionIsAdopted(self):
+		"""The list above it is one of the regions NVDA puts before the focus."""
+		self.ask()
+		self.assertFalse(tableRowLine.adoptObject(NVDAObjectRegion(self.grid)))
+
+	def test_onlyNvdasOwnClassIsAdopted(self):
+		self.ask()
+
+		class FlowLike(NVDAObjectRegion):
+			pass
+
+		self.assertFalse(tableRowLine.adoptObject(FlowLike(self.focus)))
+
+	def test_aFocusWithTextHasTheRowOnItsTextRegion(self):
+		"""NVDA follows the object region with a text region, which is the last one."""
+		self.ask()
+		self.assertFalse(tableRowLine.adoptObject(NVDAObjectRegion(self.focus, appendText=" ")))
+		region = TextInfoRegion(self.focus)
+		self.assertTrue(tableRowLine.adoptObject(region))
+		region.update()
+		self.assertIsInstance(region, tableRowLine.ObjectRowLineTextRegion)
+		self.assertEqual(region.rawText, "report.docx | 09:14 | Word document")
+		self.assertTrue(region.hidePreviousRegions)
+
+	def test_thePatchedUpdateAdoptsAndReadsTheRow(self):
+		self.ask()
+		region = NVDAObjectRegion(self.focus)
+		original = patches._originals.get("objectRegionUpdate")
+		patches._originals["objectRegionUpdate"] = NVDAObjectRegion.update
+		self.addCleanup(
+			lambda: patches._originals.pop("objectRegionUpdate")
+			if original is None
+			else patches._originals.__setitem__("objectRegionUpdate", original),
+		)
+		patches._objectRegionUpdateAdoptingRows(region)
+		self.assertIsInstance(region, tableRowLine.ObjectRowLineRegion)
+		self.assertEqual(region.rawText, "report.docx | 09:14 | Word document")
+
+
+class TestReadingAListsRow(ObjectRowLineTestCase):
+	def test_theRowIsOneLineWithBarsBetweenTheCells(self):
+		self.ask()
+		region = self.region()
+		self.assertEqual(region.rawText, "report.docx | 09:14 | Word document")
+		self.assertEqual(region.brailleCursorPos, 0)
+		self.assertTrue(region.hidePreviousRegions)
+
+	def test_theCursorIsOnTheCellTheNavigatorIsOn(self):
+		"""Where NVDA's table commands leave it in Outlook, the row keeping the focus."""
+		self.ask()
+		self.navigator = self.focus.cellObjects[2]
+		region = self.region()
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("Word"))
+
+	def test_aFocusedCellIsWhereTheCursorIs(self):
+		"""File Explorer, where the focus is one property of the file."""
+		self.focus = self.grid.item(1).cellObjects[1]
+		self.ask()
+		region = self.region()
+		self.assertEqual(region.rawText, "report.docx | 09:14 | Word document")
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("09:14"))
+
+	def test_theNextRowKeepsTheColumn(self):
+		"""An arrow key focuses a row and says nothing about a column."""
+		self.ask()
+		self.navigator = self.focus.cellObjects[2]
+		self.region()
+		self.focus, self.navigator = self.grid.item(2), None
+		region = self.region()
+		self.assertEqual(region.rawText, "notes.md | 11:02 | Markdown")
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("Markdown"))
+
+	def test_aNavigatorInAnotherRowIsNotTheColumn(self):
+		self.ask()
+		self.navigator = self.grid.item(3).cellObjects[2]
+		self.assertEqual(self.region().brailleCursorPos, 0)
+
+	def test_aSavedLayoutsColumnsAndOrderAreKept(self):
+		self.ask(columns=(3, 1))
+		self.assertEqual(self.region().rawText, "Word document | report.docx")
+
+	def test_anotherListIsNotTheOneAskedFor(self):
+		self.ask()
+		other = FakeGrid(FILES, columnCount=3)
+		self.focus = other.item(1)
+		region = self.region()
+		self.assertFalse(region.isReadingARow)
+		self.assertNotIn(" | ", region.rawText)
+
+	def test_takingTheRequestBackGivesNvdasReadingBack(self):
+		self.ask()
+		region = self.region()
+		tableRowLine.clear()
+		region.update()
+		self.assertFalse(region.isReadingARow)
+		self.assertNotIn(" | ", region.rawText)
+
+
+class TestRoutingInAList(ObjectRowLineTestCase):
+	def test_routingToAnotherCellGoesThereAndRedraws(self):
+		self.ask()
+		region = self.region()
+		region.routeTo(region.rawText.index("Word") + 1)
+		self.assertEqual(self.focusedCells(), [(1, 3)])
+		self.assertEqual(self.handler.gainedFocus, [self.focus])
+		# The row kept the focus and NVDA's navigator stayed on it: the column is remembered.
+		self.assertEqual(self.region().brailleCursorPos, region.rawText.index("Word"))
+
+	def test_routingOntoTheCursorsCellActivatesTheFocus(self):
+		self.ask()
+		region = self.region()
+		region.routeTo(0)
+		self.assertEqual(self.focus.actions, 1)
+		self.assertEqual(self.focusedCells(), [])
+
+
+class TestPanningPastAListsRow(ObjectRowLineTestCase):
+	def test_pastTheEndIsTheNextRowsFirstCell(self):
+		self.ask()
+		self.region().nextLine()
+		self.assertEqual(self.focusedCells(), [(2, 1)])
+
+	def test_pastTheStartIsTheRowBeforesLastCell(self):
+		self.focus = self.grid.item(2)
+		self.ask()
+		self.region().previousLine()
+		self.assertEqual(self.focusedCells(), [(1, 3)])
+
+	def test_theColumnPannedToIsWhereTheCursorGoes(self):
+		self.focus = self.grid.item(2)
+		self.ask()
+		self.region().previousLine()
+		self.focus = self.grid.item(1)
+		region = self.region()
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("Word"))
+
+	def test_theLastRowStops(self):
+		self.focus = self.grid.item(3)
+		self.ask()
+		self.region().nextLine()
+		self.assertEqual(self.focusedCells(), [])
+
+
+class TestNvdasColumnCommands(ObjectRowLineTestCase):
+	def test_movingToAColumnRedrawsTheRow(self):
+		self.ask()
+		self.region()
+		tableRowLine.columnMoved(self.handler)
+		self.assertEqual(self.handler.gainedFocus, [self.focus])
+
+	def test_withNothingAskedNothingIsRedrawn(self):
+		self.handler.mainBuffer.regions = [NVDAObjectRegion(self.focus)]
+		tableRowLine.columnMoved(self.handler)
+		self.assertEqual(self.handler.gainedFocus, [])
+
+	def test_thePatchMovesAsNvdaDoesFirst(self):
+		self.ask()
+		self.region()
+		moved = []
+		original = patches._originals.get("_moveToColumn")
+		patches._originals["_moveToColumn"] = lambda row, obj: moved.append(obj)
+		self.addCleanup(
+			lambda: patches._originals.pop("_moveToColumn")
+			if original is None
+			else patches._originals.__setitem__("_moveToColumn", original),
+		)
+		patches._moveToColumnShowingIt(self.focus, self.focus.cellObjects[1])
+		self.assertEqual(moved, [self.focus.cellObjects[1]])
+		self.assertEqual(self.handler.gainedFocus, [self.focus])
+
+
+class TestColumnInRow(unittest.TestCase):
+	def setUp(self):
+		self.grid = FakeGrid(FILES, columnCount=3)
+
+	def test_aCellOfTheRowSaysItsColumn(self):
+		row = self.grid.item(1)
+		self.assertEqual(flowObjectTable.columnInRow(row.cellObjects[1], row), 2)
+
+	def test_aCellOfAnotherRowIsNot(self):
+		self.assertIsNone(flowObjectTable.columnInRow(self.grid.item(2).cellObjects[1], self.grid.item(1)))
+
+	def test_somethingThatIsNotACellIsNot(self):
+		self.assertIsNone(flowObjectTable.columnInRow(FakeNavigatorObject(), self.grid.item(1)))
 
 
 if __name__ == "__main__":

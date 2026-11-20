@@ -613,8 +613,9 @@ shows the whole row the cursor is in on the line instead, with the cells separat
 
     AAPL | 310.34 | +1.2 | 48,201,300
 
-Press it with the cursor in a browse mode table. From then on, that table reads this way
-whenever you are in it; the rest of the page reads as usual. Press it again in the table, or
+Press it with the cursor in a browse mode table, or on an item of a list with columns, such as
+File Explorer's Details view or Outlook's message list. From then on, that table reads this way
+whenever you are in it; the rest of the page or window reads as usual. Press it again in the table, or
 anywhere outside a table, to go back to NVDA's normal line. The command has no key by default;
 assign one in Input Gestures, under BrlMultiline, or in a key layer.
 
@@ -630,8 +631,17 @@ assign one in Input Gestures, under BrlMultiline, or in a key layer.
 - If you have saved a layout for the table, the line shows the columns the layout shows, in its
   order.
 
-This works in tables NVDA reads in browse mode. List views and Excel worksheets are not
-affected.
+In a list, the keys are the list's own:
+
+- Up and down arrow move to another item, and the display stays on the column you were
+  reading.
+- NVDA's Control+Alt+Left and Right Arrow move between the columns, and the cursor follows.
+- A routing key over another cell moves you to that column. Over the cell you are on, it does
+  what pressing Enter on the item would.
+- Panning past the end or the start of a row goes to the next or previous item. At the first
+  or last item, panning stops.
+
+Excel worksheets are not affected.
 
 ## Not speaking a table's headers
 

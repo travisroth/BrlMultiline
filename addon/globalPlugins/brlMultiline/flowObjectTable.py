@@ -1127,6 +1127,24 @@ def columnNumberOf(cell) -> int | None:
 		return None
 
 
+def columnInRow(obj, row) -> int | None:
+	""":return: which column of a row an object is, or None if it is not one of the row's cells.
+
+	:param obj: the object, such as the navigator object.
+	:param row: the row object.
+	"""
+	if obj is None or row is None:
+		return None
+	column = columnNumberOf(obj)
+	if column is None:
+		return None
+	try:
+		parent = obj.parent
+	except Exception:
+		return None
+	return column if _isTheSame(parent, row) else None
+
+
 def headerTextOf(cell) -> str:
 	""":return: what a cell says its column's header is, or "" if it says nothing.
 

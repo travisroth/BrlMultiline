@@ -19,6 +19,9 @@
 	`glyphFlow.FIELDS`.
 	`TextInfoRegion.update` is also where a browse mode region is adopted to read a table's row
 	on one line, while the reader has asked for that. See `tableRowLine`.
+6. `NVDAObjectRegion.update`, and `TextInfoRegion.update` again, are where the focus's region
+	is adopted to read a list's row on one line, and `RowWithFakeNavigation._moveToColumn` is where NVDA's table commands move to
+	another column of it, which nothing else draws. See `tableRowLine.adoptObject`.
 
 All are installed and removed symmetrically, so disabling the add-on restores NVDA without a
 restart, but a method another add-on has since replaced is left alone. See `remove`.
@@ -39,7 +42,7 @@ from .container import DisplayContainer
 _owners: dict[str, object] = {}
 """The class each patched name belongs to, since they are no longer all on one class."""
 
-_ATTRIBUTES = {"textInfoUpdate": "update"}
+_ATTRIBUTES = {"textInfoUpdate": "update", "objectRegionUpdate": "update"}
 """Where an entry's key is not the name of the attribute it replaces.
 
 Two classes can share a method name, such as `update`, so the key stays unique.
@@ -358,12 +361,56 @@ def _textInfoUpdateForgettingProvenance(self) -> None:
 	Emptied, not removed. See `glyphFlow.FIELDS`.
 	"""
 	glyphFlow.restartFields(self)
-	if tableRowLine.adopt(self):
+	if tableRowLine.adopt(self) or tableRowLine.adoptObject(self):
 		# Now a region that reads a table row where one was asked for, and NVDA's own line
 		# everywhere else. Updated again as what it has become. See `tableRowLine`.
 		self.update()
 		return
 	_originals["textInfoUpdate"](self)
+
+
+def _objectRegionUpdateAdoptingRows(self) -> None:
+	"""Adopt the focus's region to read a list's row, where one is asked for, then update it."""
+	if tableRowLine.adoptObject(self):
+		self.update()
+		return
+	_originals["objectRegionUpdate"](self)
+
+
+def _moveToColumnShowingIt(self, obj) -> None:
+	"""Move to a column as NVDA does, then draw the row line again on the column moved to."""
+	_originals["_moveToColumn"](self, obj)
+	try:
+		import braille
+
+		tableRowLine.columnMoved(braille.handler)
+	except Exception:
+		log.debugWarning("Could not show the column moved to on the row line", exc_info=True)
+
+
+def _objectRegionClass():
+	""":return: NVDA's `NVDAObjectRegion`, or None where there is none to patch."""
+	try:
+		from braille.regions.NVDAObject import NVDAObjectRegion
+
+		return NVDAObjectRegion
+	except Exception:
+		log.debugWarning("No object region class to patch", exc_info=True)
+		return None
+
+
+def _fakeNavigationRowClass():
+	""":return: NVDA's `RowWithFakeNavigation`, or None where there is none to patch.
+
+	Without it a list's row line keeps its column until the focus moves.
+	"""
+	try:
+		from NVDAObjects.behaviors import RowWithFakeNavigation
+
+		return RowWithFakeNavigation if hasattr(RowWithFakeNavigation, "_moveToColumn") else None
+	except Exception:
+		log.debugWarning("No fake navigation row class to patch", exc_info=True)
+		return None
 
 
 def _textInfoRegionClass():
@@ -413,6 +460,12 @@ def _replacements() -> dict[str, tuple]:
 	if regions is not None and hasattr(regions, "_addFieldText"):
 		entries["_addFieldText"] = (regions, _addFieldTextRecordingProvenance)
 		entries["textInfoUpdate"] = (regions, _textInfoUpdateForgettingProvenance)
+	objects = _objectRegionClass()
+	if objects is not None:
+		entries["objectRegionUpdate"] = (objects, _objectRegionUpdateAdoptingRows)
+	rows = _fakeNavigationRowClass()
+	if rows is not None:
+		entries["_moveToColumn"] = (rows, _moveToColumnShowingIt)
 	return entries
 
 

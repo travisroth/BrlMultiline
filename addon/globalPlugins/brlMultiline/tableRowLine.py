@@ -20,15 +20,21 @@ goes on the line, panned like a long line of text::
    empty cell keeps its place between bars, which are how the reader counts columns.
 5. Panning is NVDA's; past either end of the line comes the next or previous row, and past
    the first or last row, NVDA's own answer.
+6. A list view read through `flowObjectTable`, such as File Explorer's, is shown by NVDA through
+   the focus's object region, or its text region where it has text. `adoptObject` makes the
+   last of those an `ObjectRowLineRegion` or `ObjectRowLineTextRegion`. The list's own arrow
+   keys move the focus, so the column is remembered across rows (see `cursorColumn`), and
+   past the first or last row panning stops.
 """
 
 import dataclasses
 
 from braille.regions.base import TextRegion
-from braille.regions.textInfo import CursorManagerRegion
+from braille.regions.NVDAObject import NVDAObjectRegion
+from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
-from . import glyphFlow
+from . import flowObjectTable, glyphFlow
 from .flowTableSource import (
 	TableHandle,
 	_readCell,
@@ -55,9 +61,19 @@ class Request:
 	columns: tuple = ()
 	"""The table's own column numbers, in the order to show them, or empty for every column."""
 
+	isObjectTable: bool = False
+	"""Whether the table is a list view read through `flowObjectTable`, which NVDA shows through
+	its object region rather than its browse mode line."""
+
 
 _request: Request | None = None
 """What the reader asked for, or None. One table at a time, as the column layout's request is."""
+
+_column: int | None = None
+"""The column the reader was last on in an object table, for the row the focus moves to next.
+
+A list's arrow keys are the application's, and the row they focus says nothing about a column.
+See `cursorColumn`."""
 
 
 def wanted() -> Request | None:
@@ -72,15 +88,21 @@ def request(handle: TableHandle, columns=()) -> Request:
 	:param columns: the table's own column numbers to show, in order, or empty for all of them.
 	:return: what was asked for.
 	"""
-	global _request
-	_request = Request(key=handle.key, columns=tuple(int(column) for column in columns if column))
+	global _request, _column
+	_request = Request(
+		key=handle.key,
+		columns=tuple(int(column) for column in columns if column),
+		isObjectTable=isinstance(handle.document, flowObjectTable.ObjectTable),
+	)
+	_column = handle.col
 	return _request
 
 
 def clear() -> None:
 	"""Stop. Every region this module adopted goes back to reading as NVDA's own."""
-	global _request
+	global _request, _column
 	_request = None
+	_column = None
 
 
 def adopt(region) -> bool:
@@ -93,25 +115,70 @@ def adopt(region) -> bool:
 	:return: whether it was adopted, in which case the caller should update it again as what it
 		now is.
 	"""
-	if _request is None or type(region) is not CursorManagerRegion:
+	if _request is None or _request.isObjectTable or type(region) is not CursorManagerRegion:
 		# Exactly NVDA's class and nothing derived from it. The flow's regions and the document
 		# lines' derive from it and each has a reading of its own, which this would overturn.
 		return False
+	return _becomes(region, TableRowLineRegion)
+
+
+def adoptObject(region) -> bool:
+	"""Make NVDA's region for the focus able to read a row, if a list's row is wanted.
+
+	The object table's twin of `adopt`, for the last of the regions NVDA builds for the focus:
+	its object region, or its text region where it has text. Only the focus's own: the regions
+	NVDA puts before it for the focus's ancestors are the same class, and the row a focused cell
+	is in is one of them.
+
+	:param region: a region NVDA is about to update.
+	:return: whether it was adopted, in which case the caller should update it again.
+	"""
+	if _request is None or not _request.isObjectTable:
+		return False
+	if type(region) is NVDAObjectRegion:
+		if getattr(region, "appendText", ""):
+			# NVDA's text region for the focus follows, and is the last region, which is
+			# where the cursor and the panning keys go. The row is read there instead.
+			return False
+		cls = ObjectRowLineRegion
+	elif type(region) is TextInfoRegion:
+		cls = ObjectRowLineTextRegion
+	else:
+		return False
+	if not _isTheFocus(getattr(region, "obj", None)):
+		return False
+	return _becomes(region, cls)
+
+
+def _becomes(region, cls) -> bool:
+	""":return: whether a region's class could be changed to one of this module's."""
 	try:
-		region.__class__ = TableRowLineRegion
+		region.__class__ = cls
 	except TypeError:
-		log.debugWarning(
-			"BrlMultiline: a browse mode region could not be made to read table rows",
-			exc_info=True,
-		)
+		log.debugWarning("BrlMultiline: a region could not be made to read table rows", exc_info=True)
 		return False
 	return True
+
+
+def _isTheFocus(obj) -> bool:
+	""":return: whether an object is the one with the focus."""
+	if obj is None:
+		return False
+	try:
+		import api
+
+		focus = api.getFocusObject()
+		return obj is focus or bool(obj == focus)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not compare an object with the focus", exc_info=True)
+		return False
 
 
 def redraw(handler) -> None:
 	"""Have NVDA read its line again now, rather than at the next caret move.
 
-	As a caret move, so the display is brought to the cursor's cell on the longer line.
+	As a caret move in a document, and as the focus arriving again on an object, so the display
+	is brought to the cursor's cell on the longer line either way.
 
 	:param handler: NVDA's braille handler.
 	"""
@@ -120,8 +187,27 @@ def redraw(handler) -> None:
 		region = regions[-1] if regions else None
 		if isinstance(region, CursorManagerRegion):
 			handler.handleCaretMove(region.obj, shouldAutoTether=False)
+		elif isinstance(region, (NVDAObjectRegion, TextInfoRegion)):
+			import api
+
+			handler.handleGainFocus(api.getFocusObject(), shouldAutoTether=False)
 	except Exception:
 		log.debugWarning("BrlMultiline: could not redraw after a change to table rows", exc_info=True)
+
+
+def columnMoved(handler) -> None:
+	"""Show the column NVDA's table commands have just moved the navigator object to.
+
+	They move only the navigator object, which braille tethered to the focus does not follow.
+
+	:param handler: NVDA's braille handler.
+	"""
+	if _request is None or not _request.isObjectTable:
+		return
+	regions = handler.mainBuffer.regions
+	region = regions[-1] if regions else None
+	if isinstance(region, _ObjectRowLine) and region.isReadingARow:
+		redraw(handler)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -218,6 +304,15 @@ def readRow(obj) -> RowLine | None:
 		return None
 	if handle is None or not sameTable(handle.key, asked.key):
 		return None
+	return buildLine(handle, asked)
+
+
+def buildLine(handle: TableHandle, asked: Request) -> RowLine:
+	""":return: the handle's row read and run together, in the columns asked for.
+
+	:param handle: the table, on the row to read.
+	:param asked: the request, for its columns.
+	"""
 	columns = [column for column in asked.columns if column <= handle.numCols] or list(
 		range(1, handle.numCols + 1),
 	)
@@ -380,6 +475,194 @@ class TableRowLineRegion(CursorManagerRegion):
 		info = next((getattr(cell.region, "info", None) for cell in cells if cell.region is not None), None)
 		if info is not None:
 			self._readingInfo = info.copy()
+
+
+def readObjectRow(obj) -> RowLine | None:
+	""":return: the row the focus is in, as one line, or None where NVDA's own reading should show.
+
+	:param obj: the focus, which is a row of the list or, in File Explorer, one of its cells.
+	"""
+	asked = _request
+	if asked is None or not asked.isObjectTable:
+		return None
+	try:
+		handle = tableAt(obj)
+		if handle is None or not sameTable(handle.key, asked.key):
+			return None
+		handle = dataclasses.replace(handle, col=cursorColumn(handle, obj))
+		return buildLine(handle, asked)
+	except Exception:
+		# Including a cancelled call. NVDA's own reading is the safe answer, and the next
+		# focus change asks again.
+		log.debugWarning("BrlMultiline: could not read the list row the focus is in", exc_info=True)
+		return None
+
+
+def cursorColumn(handle: TableHandle, focus) -> int:
+	""":return: the column the cursor goes on in an object table's row, which is remembered.
+
+	In order: the cell the navigator object is on, where it is in this row, as NVDA's table
+	commands leave it; the focused cell, where the focus is a cell; the column the reader was
+	last on, since the row an arrow key focuses says nothing about one.
+
+	:param handle: the table, on the focused row.
+	:param focus: the object with the focus.
+	"""
+	global _column
+	row = getattr(handle.document, "focused", None)
+	column = None
+	try:
+		import api
+
+		column = flowObjectTable.columnInRow(api.getNavigatorObject(), row)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not ask which column the navigator is in", exc_info=True)
+	if column is None and flowObjectTable.columnNumberOf(focus) is not None:
+		column = handle.col
+	if column is None:
+		column = _column or handle.col
+	_column = column
+	return column
+
+
+class _ObjectRowLine:
+	"""Reading the focused list row in place of NVDA's own region for the focus.
+
+	The object table's `TableRowLineRegion`, mixed into whichever of NVDA's regions is the
+	focus's last. Every method checks whether the last update read a row and, where it did not,
+	is NVDA's own.
+	"""
+
+	_rowLine: RowLine | None = None
+	"""The row the last update read, or None when it read NVDA's presentation instead."""
+
+	@property
+	def isReadingARow(self) -> bool:
+		""":return: whether the last update read a row rather than NVDA's presentation."""
+		return self._rowLine is not None
+
+	def update(self):
+		line = readObjectRow(self.obj)
+		self._rowLine = line
+		if line is None:
+			super().update()
+			return
+		glyphFlow.restartFields(self)
+		self.rawText = line.rawText
+		self.rawTextTypeforms = []
+		self.brailleCells = line.brailleCells
+		self.rawToBraillePos = line.rawToBraillePos
+		self.brailleToRawPos = line.brailleToRawPos
+		self.selectionStart = self.selectionEnd = None
+		self.brailleSelectionStart = self.brailleSelectionEnd = None
+		self._brailleInputIndStart = None
+		# The list's ancestors, and the focus's own object region where its text follows,
+		# would push the row a display to the right. See `TableRowLineRegion.update`.
+		self.hidePreviousRegions = True
+		self.focusToHardLeft = True
+		here = line.cellFor(line.handle.col)
+		self.cursorPos = here.rawStart if here is not None else None
+		self.brailleCursorPos = here.brailleStart if here is not None else None
+
+	def routeTo(self, braillePos: int):
+		"""Go to the cell a finger landed on, or do the focus's default action on the one it is on.
+
+		The second half is what NVDA's object region does with every routing key. Going to a cell
+		in the row that already has the focus moves only the navigator object, so the line is
+		drawn again rather than left to a focus event that does not come.
+		"""
+		global _column
+		line = self._rowLine
+		if line is None:
+			return super().routeTo(braillePos)
+		cell = line.cellAt(braillePos)
+		if cell is None or cell.region is None:
+			return None
+		if cell.column == line.handle.col:
+			try:
+				self.obj.doAction()
+			except NotImplementedError:
+				pass
+			except Exception:
+				log.debugWarning("BrlMultiline: could not activate a list row", exc_info=True)
+			return None
+		_column = cell.column
+		cell.region.routeTo(0)
+		import braille
+
+		redraw(braille.handler)
+		return None
+
+	def nextLine(self):
+		"""Panning on past the end of the row: the first cell of the next one.
+
+		A list has nothing after its last row to pan into, so there it stops.
+		"""
+		if self._rowLine is None:
+			return super().nextLine()
+		self._toRow(1)
+		return None
+
+	def previousLine(self, start=False):
+		"""Panning back past the start of the row: the last cell of the row before, or its first.
+
+		See `TableRowLineRegion.previousLine`.
+		"""
+		if self._rowLine is None:
+			return super().previousLine(start)
+		self._toRow(-1, fromTheEnd=not start)
+		return None
+
+	def _toRow(self, by: int, fromTheEnd: bool = False) -> bool:
+		"""Go to the row beside this one, in the first cell it has of those shown.
+
+		The column is remembered before the focus moves, since the focus event is what draws
+		the row and it says nothing about a column.
+
+		:param by: which way, as 1 or -1.
+		:param fromTheEnd: whether to look for its last cell rather than its first.
+		:return: whether there was a row that way with a cell in it.
+		"""
+		global _column
+		line = self._rowLine
+		handle = line.handle
+		columns = [cell.column for cell in line.cells]
+		if fromTheEnd:
+			columns.reverse()
+		row = handle.row + by
+		while 1 <= row <= handle.numRows:
+			for column in columns:
+				try:
+					region = cellRegion(handle, row, column, live=True)
+				except Exception:
+					log.debugWarning(f"BrlMultiline: could not read row {row} of a list", exc_info=True)
+					return False
+				if region is not None:
+					_column = column
+					region.routeTo(0)
+					return True
+			row += by
+		return False
+
+
+class ObjectRowLineRegion(_ObjectRowLine, NVDAObjectRegion):
+	"""NVDA's object region for the focus, reading the focused list row while one is asked for."""
+
+
+class ObjectRowLineTextRegion(_ObjectRowLine, TextInfoRegion):
+	"""NVDA's text region for a focus that has text, reading the focused list row instead.
+
+	NVDA puts this after the focus's object region, so the row goes here and the object region
+	is hidden. See `adoptObject`.
+	"""
+
+	def getTextInfoForBraillePos(self, braillePos: int):
+		"""The focus's caret, since no position in the row is a position in the focus's text."""
+		if self._rowLine is None:
+			return super().getTextInfoForBraillePos(braillePos)
+		import textInfos
+
+		return self.obj.makeTextInfo(textInfos.POSITION_CARET)
 
 
 def _speakOnRouting(info) -> None:
