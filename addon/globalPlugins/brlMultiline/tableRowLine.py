@@ -25,6 +25,9 @@ goes on the line, panned like a long line of text::
    last of those an `ObjectRowLineRegion` or `ObjectRowLineTextRegion`. The list's own arrow
    keys move the focus, so the column is remembered across rows (see `cursorColumn`), and
    past the first or last row panning stops.
+7. A worksheet's cell is drawn by the Excel module's own region, a subclass of NVDA's, which
+   opts in through `ROW_LINE_SEAM`. Only a single cell's row is read: a selected range is
+   NVDA's to show. Hidden columns and rows are passed over, as the column layout does.
 """
 
 import dataclasses
@@ -39,9 +42,19 @@ from .flowTableSource import (
 	TableHandle,
 	_readCell,
 	cellRegion,
+	columnsShowingIn,
+	rowBeside,
 	sameTable,
 	tableAt,
 )
+
+ROW_LINE_SEAM = "brlMultilineReadsARow"
+"""A class attribute by which a subclass of NVDA's object region says it may read a row.
+
+True means the region is always the focus's last, as a worksheet cell's is. The region keeps
+its own class underneath and its own behaviour wherever no row is read. Its update may call
+NVDA's, which is where adoption happens, so the row is drawn by `_ObjectRowLine.showRow` and
+never by calling `update` again."""
 
 SEPARATOR = " | "
 """What goes between two cells.
@@ -128,14 +141,16 @@ def adoptObject(region) -> bool:
 	The object table's twin of `adopt`, for the last of the regions NVDA builds for the focus:
 	its object region, or its text region where it has text. Only the focus's own: the regions
 	NVDA puts before it for the focus's ancestors are the same class, and the row a focused cell
-	is in is one of them.
+	is in is one of them. A subclass is taken only where it opts in; see `ROW_LINE_SEAM`.
 
 	:param region: a region NVDA is about to update.
 	:return: whether it was adopted, in which case the caller should update it again.
 	"""
-	if _request is None or not _request.isObjectTable:
+	if _request is None or not _request.isObjectTable or isinstance(region, _ObjectRowLine):
 		return False
-	if type(region) is NVDAObjectRegion:
+	if getattr(type(region), ROW_LINE_SEAM, False) and isinstance(region, NVDAObjectRegion):
+		cls = _rowLineClassFor(type(region))
+	elif type(region) is NVDAObjectRegion:
 		if getattr(region, "appendText", ""):
 			# NVDA's text region for the focus follows, and is the last region, which is
 			# where the cursor and the panning keys go. The row is read there instead.
@@ -148,6 +163,19 @@ def adoptObject(region) -> bool:
 	if not _isTheFocus(getattr(region, "obj", None)):
 		return False
 	return _becomes(region, cls)
+
+
+_rowLineClasses: dict = {}
+"""The row reading classes made for regions that opt in, by the class each was made for."""
+
+
+def _rowLineClassFor(base: type) -> type:
+	""":return: a class that reads a row and is otherwise `base`, made once per base."""
+	cls = _rowLineClasses.get(base)
+	if cls is None:
+		cls = type(f"RowLine{base.__name__}", (_ObjectRowLine, base), {})
+		_rowLineClasses[base] = cls
+	return cls
 
 
 def _becomes(region, cls) -> bool:
@@ -313,9 +341,16 @@ def buildLine(handle: TableHandle, asked: Request) -> RowLine:
 	:param handle: the table, on the row to read.
 	:param asked: the request, for its columns.
 	"""
-	columns = [column for column in asked.columns if column <= handle.numCols] or list(
-		range(1, handle.numCols + 1),
-	)
+	columns = [column for column in asked.columns if column <= handle.numCols]
+	if not columns:
+		showing = columnsShowingIn(handle)
+		# A hidden column is left out, as the column layout leaves it out, but never the
+		# reader's own, so they keep a cursor.
+		columns = [
+			column
+			for column in range(1, handle.numCols + 1)
+			if showing is None or column in showing or column == handle.col
+		]
 	line = RowLine(handle=handle, cells=[])
 	separator = _separator()
 	text, drawn, forward, _back = separator
@@ -477,10 +512,12 @@ class TableRowLineRegion(CursorManagerRegion):
 			self._readingInfo = info.copy()
 
 
-def readObjectRow(obj) -> RowLine | None:
+def readObjectRow(obj, canReadASheet: bool = False) -> RowLine | None:
 	""":return: the row the focus is in, as one line, or None where NVDA's own reading should show.
 
 	:param obj: the focus, which is a row of the list or, in File Explorer, one of its cells.
+	:param canReadASheet: whether the region is a worksheet cell's own, which is the only one a
+		worksheet's row is read in. A selected range is drawn by NVDA's plain object region.
 	"""
 	asked = _request
 	if asked is None or not asked.isObjectTable:
@@ -488,6 +525,8 @@ def readObjectRow(obj) -> RowLine | None:
 	try:
 		handle = tableAt(obj)
 		if handle is None or not sameTable(handle.key, asked.key):
+			return None
+		if isinstance(handle.document, flowObjectTable.SheetTable) and not canReadASheet:
 			return None
 		handle = dataclasses.replace(handle, col=cursorColumn(handle, obj))
 		return buildLine(handle, asked)
@@ -511,12 +550,15 @@ def cursorColumn(handle: TableHandle, focus) -> int:
 	global _column
 	row = getattr(handle.document, "focused", None)
 	column = None
-	try:
-		import api
+	if not isinstance(row, int):
+		# A worksheet's row is a number, and asking a cell for its parent there builds a
+		# worksheet. Its focus is always a cell, which answers below.
+		try:
+			import api
 
-		column = flowObjectTable.columnInRow(api.getNavigatorObject(), row)
-	except Exception:
-		log.debugWarning("BrlMultiline: could not ask which column the navigator is in", exc_info=True)
+			column = flowObjectTable.columnInRow(api.getNavigatorObject(), row)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not ask which column the navigator is in", exc_info=True)
 	if column is None and flowObjectTable.columnNumberOf(focus) is not None:
 		column = handle.col
 	if column is None:
@@ -542,11 +584,18 @@ class _ObjectRowLine:
 		return self._rowLine is not None
 
 	def update(self):
-		line = readObjectRow(self.obj)
+		if not self.showRow():
+			super().update()
+
+	def showRow(self) -> bool:
+		"""Draw the focused row in place of NVDA's presentation, if there is one to draw.
+
+		:return: whether a row was drawn. Where not, the caller draws NVDA's presentation.
+		"""
+		line = readObjectRow(self.obj, canReadASheet=bool(getattr(type(self), ROW_LINE_SEAM, False)))
 		self._rowLine = line
 		if line is None:
-			super().update()
-			return
+			return False
 		glyphFlow.restartFields(self)
 		self.rawText = line.rawText
 		self.rawTextTypeforms = []
@@ -563,6 +612,7 @@ class _ObjectRowLine:
 		here = line.cellFor(line.handle.col)
 		self.cursorPos = here.rawStart if here is not None else None
 		self.brailleCursorPos = here.brailleStart if here is not None else None
+		return True
 
 	def routeTo(self, braillePos: int):
 		"""Go to the cell a finger landed on, or do the focus's default action on the one it is on.
@@ -629,19 +679,19 @@ class _ObjectRowLine:
 		columns = [cell.column for cell in line.cells]
 		if fromTheEnd:
 			columns.reverse()
-		row = handle.row + by
-		while 1 <= row <= handle.numRows:
-			for column in columns:
-				try:
+		try:
+			row = rowBeside(handle, handle.row, by)
+			while row is not None and 1 <= row <= handle.numRows:
+				for column in columns:
 					region = cellRegion(handle, row, column, live=True)
-				except Exception:
-					log.debugWarning(f"BrlMultiline: could not read row {row} of a list", exc_info=True)
-					return False
-				if region is not None:
-					_column = column
-					region.routeTo(0)
-					return True
-			row += by
+					if region is not None:
+						_column = column
+						region.routeTo(0)
+						return True
+				# A row with none of these columns in it. See `TableRowLineRegion._toRow`.
+				row = rowBeside(handle, row, by)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not read the row beside a list's row", exc_info=True)
 		return False
 
 

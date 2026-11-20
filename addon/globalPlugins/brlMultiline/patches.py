@@ -20,8 +20,9 @@
 	`TextInfoRegion.update` is also where a browse mode region is adopted to read a table's row
 	on one line, while the reader has asked for that. See `tableRowLine`.
 6. `NVDAObjectRegion.update`, and `TextInfoRegion.update` again, are where the focus's region
-	is adopted to read a list's row on one line, and `RowWithFakeNavigation._moveToColumn` is where NVDA's table commands move to
-	another column of it, which nothing else draws. See `tableRowLine.adoptObject`.
+	is adopted to read a list's or a worksheet's row on one line, and
+	`RowWithFakeNavigation._moveToColumn` is where NVDA's table commands move to another column
+	of it, which nothing else draws. See `tableRowLine.adoptObject`.
 
 All are installed and removed symmetrically, so disabling the add-on restores NVDA without a
 restart, but a method another add-on has since replaced is left alone. See `remove`.
@@ -371,8 +372,9 @@ def _textInfoUpdateForgettingProvenance(self) -> None:
 
 def _objectRegionUpdateAdoptingRows(self) -> None:
 	"""Adopt the focus's region to read a list's row, where one is asked for, then update it."""
-	if tableRowLine.adoptObject(self):
-		self.update()
+	if tableRowLine.adoptObject(self) and self.showRow():
+		# Not `self.update()`: a subclass's own update may be what called this one. See
+		# `tableRowLine.ROW_LINE_SEAM`.
 		return
 	_originals["objectRegionUpdate"](self)
 

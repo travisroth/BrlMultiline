@@ -1559,6 +1559,10 @@ class CellHeaders:
 class CellRegion(CellHeaders, NVDAObjectRegion):
 	"""A worksheet cell as braille draws it while following the focus."""
 
+	brlMultilineReadsARow = True
+	"""The cell's whole row may be drawn here instead, while the reader asks for rows on one
+	line. See `globalPlugins.brlMultiline.tableRowLine.ROW_LINE_SEAM`."""
+
 
 class ReviewCellRegion(CellHeaders, ReviewNVDAObjectRegion):
 	"""The same cell while braille follows the review cursor.

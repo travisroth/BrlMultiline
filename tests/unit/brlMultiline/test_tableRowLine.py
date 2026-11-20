@@ -513,3 +513,176 @@ class TestColumnInRow(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+SALES = [
+	["Region", "Q1", "Q2"],
+	["North", "1200", "1310"],
+	["South", "980", "1024"],
+	["East", "1750", "1690"],
+]
+
+
+class Workbook:
+	"""A worksheet addressed by coordinate, as the Excel module hands one over.
+
+	Its cells record being gone to, which is what a routing key or a pan asks of them.
+	"""
+
+	def __init__(self, rows, at):
+		self.rows = rows
+		self.at = at
+		self.obj = FakeNavigatorObject("Sheet1", role="TABLE")
+		self.goneTo = []
+
+	def where(self):
+		return self.at
+
+	def shape(self):
+		return (len(self.rows), len(self.rows[0]))
+
+	def cellAt(self, row, column):
+		if not (1 <= row <= len(self.rows) and 1 <= column <= len(self.rows[0])):
+			return None
+		cell = FakeNavigatorObject(self.rows[row - 1][column - 1], role="TABLECELL")
+		cell.rowNumber = row
+		cell.columnNumber = column
+		cell.brlMultilineSheet = lambda: self
+		cell.setFocus = lambda: self.goneTo.append((row, column))
+		return cell
+
+
+class SheetCellRegion(NVDAObjectRegion):
+	"""The Excel module's region for a cell: a header added through `appendText`, then NVDA's
+	own update, which is where the patch adopts it."""
+
+	brlMultilineReadsARow = True
+
+	def update(self):
+		theirs = self.appendText
+		self.appendText = " Region" + theirs
+		try:
+			patches._objectRegionUpdateAdoptingRows(self)
+		finally:
+			self.appendText = theirs
+
+
+class SheetRowLineTestCase(unittest.TestCase):
+	def setUp(self):
+		import api
+		import braille
+
+		tableRowLine.clear()
+		self.addCleanup(tableRowLine.clear)
+		original = patches._originals.get("objectRegionUpdate")
+		patches._originals["objectRegionUpdate"] = NVDAObjectRegion.update
+		self.addCleanup(
+			lambda: patches._originals.pop("objectRegionUpdate")
+			if original is None
+			else patches._originals.__setitem__("objectRegionUpdate", original),
+		)
+		self.sheet = Workbook(SALES, at=(2, 2))
+		self.focus = self.sheet.cellAt(2, 2)
+		for name, answer in (
+			("getFocusObject", lambda: self.focus),
+			("getNavigatorObject", lambda: self.focus),
+		):
+			self.addCleanup(setattr, api, name, getattr(api, name))
+			setattr(api, name, answer)
+		self.handler = FakeBrailleHandler()
+		self.addCleanup(setattr, braille, "handler", braille.handler)
+		braille.handler = self.handler
+
+	def ask(self, columns=()):
+		tableRowLine.request(tableAt(self.focus), columns)
+
+	def moveTo(self, row, column):
+		self.sheet.at = (row, column)
+		self.focus = self.sheet.cellAt(row, column)
+
+	def region(self, cls=SheetCellRegion):
+		region = cls(self.focus)
+		region.update()
+		self.handler.mainBuffer.regions = [region]
+		return region
+
+
+class TestReadingAWorksheetsRow(SheetRowLineTestCase):
+	def test_theCellsRowIsReadInTheExcelModulesRegion(self):
+		self.ask()
+		region = self.region()
+		self.assertEqual(region.rawText, "North | 1200 | 1310")
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("1200"))
+		self.assertIsInstance(region, SheetCellRegion)
+		self.assertIsInstance(region, tableRowLine._ObjectRowLine)
+
+	def test_leftAndRightArrowMoveTheCursorAlongTheLine(self):
+		"""Excel's own arrow keys focus the next cell, which says its column."""
+		self.ask()
+		self.region()
+		self.moveTo(2, 3)
+		region = self.region()
+		self.assertEqual(region.rawText, "North | 1200 | 1310")
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("1310"))
+
+	def test_downArrowShowsTheRowBelow(self):
+		self.ask()
+		self.region()
+		self.moveTo(3, 2)
+		region = self.region()
+		self.assertEqual(region.rawText, "South | 980 | 1024")
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("980"))
+
+	def test_takingTheRequestBackGivesTheModulesReadingBack(self):
+		"""Header and all, and the header once."""
+		self.ask()
+		region = self.region()
+		tableRowLine.clear()
+		region.update()
+		self.assertFalse(region.isReadingARow)
+		self.assertEqual(region.rawText.count("Region"), 1)
+		self.assertNotIn(" | ", region.rawText)
+
+	def test_aSelectedRangeIsNvdasToShow(self):
+		"""Several cells selected are drawn by NVDA's plain region, which reads no row."""
+		self.ask()
+		region = NVDAObjectRegion(self.focus)
+		patches._objectRegionUpdateAdoptingRows(region)
+		self.assertFalse(region.isReadingARow)
+		self.assertNotIn(" | ", region.rawText)
+
+	def test_aHiddenColumnIsLeftOut(self):
+		self.sheet.columnsShowing = lambda: {1, 3}
+		self.moveTo(2, 1)
+		self.ask()
+		self.assertEqual(self.region().rawText, "North | 1310")
+
+	def test_butNeverTheReadersOwnColumn(self):
+		self.sheet.columnsShowing = lambda: {1, 3}
+		self.ask()
+		self.assertEqual(self.region().rawText, "North | 1200 | 1310")
+
+
+class TestMovingInAWorksheetsRow(SheetRowLineTestCase):
+	def test_routingToAnotherCellGoesToIt(self):
+		self.ask()
+		region = self.region()
+		region.routeTo(region.rawText.index("1310"))
+		self.assertEqual(self.sheet.goneTo, [(2, 3)])
+
+	def test_panningPastTheEndGoesToTheNextRow(self):
+		self.ask()
+		self.region().nextLine()
+		self.assertEqual(self.sheet.goneTo, [(3, 1)])
+
+	def test_panningPassesOverHiddenRows(self):
+		self.sheet.rowAfter = lambda row, by: 4 if (row, by) == (2, 1) else row + by
+		self.ask()
+		self.region().nextLine()
+		self.assertEqual(self.sheet.goneTo, [(4, 1)])
+
+	def test_panningStopsAtTheLastRow(self):
+		self.moveTo(4, 1)
+		self.ask()
+		self.region().nextLine()
+		self.assertEqual(self.sheet.goneTo, [])

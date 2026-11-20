@@ -234,7 +234,7 @@ class TableCommands:
 		For a display with no band. See `tableRowLine`. On and off follow the same rule as
 		`toggleColumns`.
 		"""
-		from . import flowObjectTable, flowTableLayouts
+		from . import flowTableLayouts
 		from .flowTableSource import sameTable
 
 		handle = self._tableHere()
@@ -248,14 +248,6 @@ class TableCommands:
 		if handle is None:
 			# Translators: reported when a command needs the cursor to be in a table.
 			ui.message(_("Not in a table"))
-			return
-		if isinstance(handle.document, flowObjectTable.SheetTable):
-			# A worksheet's cell is drawn by the Excel module's own region, which this does not
-			# replace.
-			ui.message(
-				# Translators: reported when rows on one line are asked for in a spreadsheet.
-				_("Rows on one line are not available in a worksheet"),
-			)
 			return
 		try:
 			layout = flowTableLayouts.layoutFor(handle)

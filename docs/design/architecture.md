@@ -30,7 +30,9 @@ established there.
   with no band. In browse mode it adopts NVDA's own `CursorManagerRegion` from the patch on
   `TextInfoRegion.update`; in a list view read through `flowObjectTable` it adopts the focus's
   `NVDAObjectRegion`, or its `TextInfoRegion` where the focus has text, from the patches on
-  their `update`. Only while the reader has asked for a table, and NVDA's own everywhere else.
+  their `update`. In a worksheet it adopts the Excel module's `CellRegion`, which opts in
+  through `tableRowLine.ROW_LINE_SEAM`. Only while the reader has asked for a table, and
+  NVDA's own everywhere else.
   The patch on `RowWithFakeNavigation._moveToColumn` redraws the row when NVDA's table
   commands move to another column, which moves only the navigator object.
 - `keyLayers.py` — layered keys, the model: layers, the fall through chain, what a key does

@@ -1827,6 +1827,13 @@ class TestTheHeaderInNvdasOwnBraille(unittest.TestCase):
 		self.assertNotIsInstance(region, excelModule.ReviewCellRegion)
 		self.assertIsInstance(region, excelModule.CellRegion)
 
+	def test_onlyTheFocusesRegionMayReadARow(self):
+		"""Rows on one line follow the focus. The review cursor's cell stays a cell."""
+		from brlMultiline import tableRowLine
+
+		self.assertTrue(getattr(excelModule.CellRegion, tableRowLine.ROW_LINE_SEAM))
+		self.assertFalse(getattr(excelModule.ReviewCellRegion, tableRowLine.ROW_LINE_SEAM, False))
+
 
 class TestGoingToACell(unittest.TestCase):
 	"""What a routing key over a column means. `NVDAObject.setFocus` does nothing at all by
