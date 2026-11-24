@@ -1772,7 +1772,8 @@ attribute, since the value is set inside NVDA's own update between the two momen
 
 `CursorOnlyWhereTheReaderIs` is that property, with the subclass answering `holdsTheCursor`:
 the active block of a live band for a flow, and the caret's own line for the document lines
-drawn around it. Both had the fault and both had it for the same reason.
+drawn around it, which have since been removed. Both had the fault and both had it for the same
+reason.
 
 **The harness could not have caught it**, which is the more useful lesson. The stand-in
 `TextInfoRegion` set its cursor *after* calling `Region.update` — the reverse of NVDA — so
@@ -3185,11 +3186,66 @@ four row chunk, and the rest of a long cell could not be reached. A table row is
 chunks of the renderer's `maxRows`, as a paragraph is, and each cell is laid out only as far as
 the chunk being drawn needs. `MAX_TABLE_ROWS` shapes the layout and no longer cuts the row.
 
+## A row on one line, for a display with no band
+
+Status: built, unit tested (`test_tableRowLine`) and on hardware for all three sources: browse
+mode tables, list views read through `flowObjectTable`, and Excel worksheets.
+
+A one row display such as the Focus 80 has no band to lay a table out in columns, and NVDA shows
+a table one cell at a time there, so the reader cannot compare a row's cells. "Table: Toggle
+showing the table's rows on one line" draws the row the reader is in as one long line, its cells
+divided by bars, and panned like a long line of text. `tableRowLine.py` is the code; its module
+docstring is the contract. These are the decisions behind it.
+
+1. **NVDA's own region is taken over, not replaced.** In browse mode the caret's
+   `CursorManagerRegion` becomes a `TableRowLineRegion` through `adopt`, from the patch on
+   `TextInfoRegion.update`. In a list view it is the focus's `NVDAObjectRegion`, or its
+   `TextInfoRegion` where the focus has text, through `adoptObject` and the patch on
+   `NVDAObjectRegion.update`. A worksheet's cell region opts in through `ROW_LINE_SEAM`. Each
+   class asks on every update whether a row was read, and where none was it is NVDA's own, so the
+   cursor, panning and routing stay on the last region, where NVDA sends them.
+2. **The request is per table, as the column layout's is.** Pressing again, or leaving the table,
+   takes it back. Columns follow a saved layout, else all of them in order. A column the table is
+   hiding is left out, but never the reader's own, so they keep a cursor, and a saved layout whose
+   columns are all hidden shows every column on show. An empty cell keeps its place between the
+   bars, because the bars are how the reader counts columns.
+3. **The cursor sits at the start of the reader's cell,** which answers the question the reader
+   cannot answer by feel: which cell. A routing key moves to the cell it lands on, and on the
+   reader's own cell it activates it (browse mode) or does the item's default action (a list),
+   as NVDA does when routing onto the cursor. NVDA's Control+Alt+Arrow column commands move only
+   the navigator object, so the patch on `RowWithFakeNavigation._moveToColumn` redraws the line.
+   A list's arrow keys move the focus to another row, so the column being read is remembered
+   across rows (`cursorColumn`).
+4. **Panning past either end of the row goes to the next or previous row.** Past the first or
+   last row, browse mode gives NVDA's own answer and a list stops.
+5. **A row is read on every move, so its cost is bounded.** A worksheet reads its row in one call
+   through Excel's bulk text path (`_regionsInOneCall`), and the object behind a cell is fetched
+   only when a routing key lands on it. The bulk read is split where more than `LONGEST_GAP_READ`
+   (16) unwanted columns separate the wanted ones, so a reader far to the right of the data does
+   not read every empty column between. Where a row cannot be read in one call, at most
+   `CELLS_READ_ONE_AT_A_TIME` (64) cells around the reader's are read one at a time.
+6. **A partly read row is panned as a whole row.** Past either end of the 64 cells read, panning
+   goes to the nearest column of the same row that was not read (`goToRestOfRow`), and moves to
+   another row only once the row has been read that way.
+7. **A cancelled read shows NVDA's presentation, not an empty row.** Where NVDA stops waiting on
+   the application (`CallCancelled`), the cells not read would show as empty places between
+   bars, which reads as a row of empty cells. So the whole update falls back to NVDA's own
+   presentation, in all three sources. Other failures read as one empty cell.
+8. **Drawing a row sets things NVDA's update does not always set back:** the cursor positions,
+   `hidePreviousRegions` and `focusToHardLeft`, which keep the document's or the list's name from
+   pushing the row a display to the right. `keepNvdasPresentation` remembers NVDA's values before
+   the first row is drawn, and `restoreNvdasPresentation` puts them back before NVDA draws again,
+   so a row's cursor and layout do not outlast it.
+9. **A worksheet over 250 columns wide is no table.** Excel offers a sheet for such a cell and
+   then declines it, so the generic table questions are not asked of it, and the dry run does not
+   walk its worksheet's children, which in Excel run the whole width of the grid. Only a single
+   cell's row is read; a selected range is NVDA's to show.
+
 ## Open questions
 
-1. **What re-reads a tree when a node is expanded?** A state change event is the obvious
-   answer, but it arrives for a great many things and the flow must not re-read on all of
-   them.
+1. ~~What re-reads a tree when a node is expanded?~~ **Answered by M2a, on hardware:** the
+   visible-tree walk notices expanding and collapsing without an event, in Outlook's folder
+   pane and in File Explorer. See M2a.
 
 2. **How is "the cells still fit" decided, for decision 7?** Answered by M1:
    `MAX_INDENT_SHARE`, a fixed share of the row, decided once per plan rather than per fill.
@@ -3213,15 +3269,24 @@ the chunk being drawn needs. `MAX_TABLE_ROWS` shapes the layout and no longer cu
    on the display shifts when the band rebases. It is the right trade on paper and it is
    still a hardware question; the answer decides whether decision 5 needs an escape hatch.
 
-4. **How wide is a column by default?** Even division of the band across shown columns is
-   the obvious first answer and is probably wrong for a watchlist, where the symbol needs
-   six cells and the change needs eight. Proportional to the header length is a second
-   guess. This may simply be what the reader sets and saves.
+4. ~~How wide is a column by default?~~ **Answered by M3a:** by measuring what is in the column
+   and fitting from the widest down, not by dividing the band evenly. A reader can still set a
+   width, and a saved layout keeps the choice rather than the cells. See M3a and M6.
 
 5. **Where does a merged cell go?** `_getTableCellCoords` reports row and column spans, so
    the information is there. A column layout has to decide what to do with a cell that
    spans three of them.
 
-6. **Is the identity key stable enough in practice?** The header-signature idea for web
-   tables is untested. It fails on a table whose headers are localised or reordered, and it
-   is the only thing standing between the reader and re-applying a layout by hand.
+6. ~~Is the identity key stable enough in practice?~~ **Answered by M6, on hardware:** an
+   identity is where the table is (a page's `documentConstantIdentifier`, or an application and
+   window class) and what it is (its declared headings), and a saved table comes back in
+   columns in browse mode and in File Explorer's Details view. A table whose headings are
+   localised or reordered still fails to match.
+
+7. **How is a tree inside a browse mode document shown?** Trees are done for objects: depth,
+   indent, the focus mark and the visible-tree walk are on hardware in Outlook and File
+   Explorer. A tree in a web page is not built. A document wins wherever there is one (see
+   spatial-reading-plan.md, milestone 6), so a web tree view flows as lines of the page rather
+   than being read as a tree on its own, as an open combo box's choices are. The one browse
+   mode tree view on hand, the Exchange admin console, is badly coded and is not a good case to
+   build against, so this waits for a better tree to build and test against.

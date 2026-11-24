@@ -5,7 +5,7 @@ up segments and their sizes beforehand, in the settings, and every pin goes into
 segments. That is hard to remember, and the right size depends on what is pinned: a web page
 may want the whole Monarch one day and half of it the next.
 
-Status: built and unit tested, not yet tried in NVDA or on hardware. Builds on the pinned
+Status: built and unit tested, and tried in NVDA on hardware, where it works. Builds on the pinned
 objects dialog (port-plan.md, The pinned objects dialog). The places are in `pinPlaces.py`, the
 plugin's side in `GlobalPlugin.pinToPlace` and the methods after it, and the dialog in
 `pinDialog.py`. As built, below, says where the build differs from this design.

@@ -9,6 +9,10 @@ Read [layered-keys-plan.md](layered-keys-plan.md) for layers and how a command l
 display it was pressed on, and [app-layouts-plan.md](app-layouts-plan.md) for monitored segments.
 This document assumes both.
 
+Status: built and unit tested, milestones 1 to 4, in `pinQuickNav.py` (commit 814bf39), with the
+faults from its review fixed (see "Review of 814bf39") and first released in 2026.3.0. The readme
+documents it under the pinned document commands. The two items under "Deferred" are not built.
+
 ## Verdict
 
 Worth doing, and NVDA has already done the hard part. Every browse mode quick navigation key ends

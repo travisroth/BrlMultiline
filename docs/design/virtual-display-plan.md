@@ -856,8 +856,8 @@ requirement applied to the add-on's own settings, and it fell out of the existin
 rather than needing a new one.
 
 What does belong to the composite is what there is only one of: which segment follows the
-focus (counted across every display), the panning direction, and whether the free segments
-show the document lines.
+focus (counted across every display), the panning direction, and, until they were removed on
+2026-10-14, whether the free segments showed the document lines.
 
 Segment keys are `device.<driverName>.<n>` rather than the configured view's `display.<n>`.
 Named after the hardware, so a pin on the secondary survives a settings change on the primary.

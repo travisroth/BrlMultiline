@@ -5,8 +5,8 @@ Living document. Update the status markers as work lands.
 Target: NVDA 2026.3 or later. The floor is set by the braille package refactor, which split
 `source/braille.py` into `source/braille/` in commit 54ccd097f on 2026-06-22. That is after
 the 2026.1 release (2026-05-06) and after the 2026.2 beta branch was cut, so neither of
-those releases has the package: the add-on's imports fail outright on both. 2026.3 has no
-beta yet, so development and testing run against NVDA alpha snapshots for now.
+those releases has the package: the add-on's imports fail outright on both. NVDA 2026.3 is
+released, and `buildVars.py` gives 2026.3.0 as the minimum version and the last version tested.
 
 Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older and shipped in
 2026.1, so it does not affect the floor.
@@ -16,16 +16,22 @@ Multi row display support (`DisplayDimensions`, `numRows`/`numCols`) is older an
 1. Milestone 1, scaffold — DONE
 2. Milestone 2, segments and container — VERIFIED ON A FOCUS 80, single row
 3. Milestone 3, configuration and commands — VERIFIED ON A FOCUS 80, single row
-4. Milestone 4, TextInfoPositionRegion — CODE COMPLETE, UNVERIFIED ON HARDWARE
-5. Milestone 5, ObjectMonitor — VERIFIED IN PART, one defect open: see the log below
-6. Milestone 6, views — CODE COMPLETE, UNVERIFIED ON HARDWARE
-7. Milestone 7, panels and composition — CODE COMPLETE, UNVERIFIED ON HARDWARE
-8. Milestone 8, lifecycle defects and the plugin harness — CODE COMPLETE, UNVERIFIED ON HARDWARE
+4. Milestone 4, TextInfoPositionRegion — REMOVED on 2026-10-14 (commit e1f62f3). The flow in
+   [spatial-reading-plan.md](spatial-reading-plan.md) shows the lines around the caret better
+   and in more places. The section below records what it was.
+5. Milestone 5, ObjectMonitor — VERIFIED ON A FOCUS 80. The browse mode panning defect the
+   first run found is fixed and re-tested: see the log below.
+6. Milestone 6, views — CODE COMPLETE, NOT CHECKED ON HARDWARE AS A MILESTONE
+7. Milestone 7, panels and composition — CODE COMPLETE, NOT CHECKED ON HARDWARE AS A MILESTONE
+8. Milestone 8, lifecycle defects and the plugin harness — CODE COMPLETE, NOT CHECKED ON
+   HARDWARE AS A MILESTONE
 
-What "code complete" means here: the add-on builds to an installable `.nvda-addon`, ruff
-passes clean, and the unit tests over geometry, panels, views, the container, the document
-line regions and the global plugin pass. It does **not** mean a milestone above has been read
-on a display — the list under "Verification owed" and the hardware log below say what has.
+What "code complete" means here: the add-on builds to an installable `.nvda-addon`, ruff and
+pyright pass clean, and the unit tests pass. Views, claims and the lifecycle fixes are what
+every later plan is built on, and the add-on is in daily use on a Monarch and a Focus 80
+together, so they are exercised all the time. "Not checked as a milestone" means only that
+the checks listed for them under "Verification owed" were not run one by one; the hardware log
+below says which checks were.
 
 **This file is about the original port only, and it is no longer where most of the work is.**
 The flow, the structured presentation of trees and tables, tactile graphics and the Monarch
@@ -80,12 +86,14 @@ python -m uv sync
 That creates `.venv` with the pinned tooling (scons 4.10.1, ruff 0.14.5, pyright 1.1.407,
 prek, and the l10n tools). Thereafter:
 
-- Build: `python -m uv run scons`
-- Lint: `python -m uv run ruff check .` and `python -m uv run ruff format --check .`
-- Unit tests: `python -m uv run python -m unittest discover -s tests`
+- Build: `uv run scons`
+- Lint: `uv run ruff check .` and `uv run ruff format --check .`
+- Types: `uv run pyright`
+- Unit tests: `uv run python -m unittest discover -s tests`
+- Everything the build workflow checks: `uv run prek run --all-files`
 
-Note `uv` is invoked as `python -m uv` because it was installed into the system Python
-rather than onto `PATH`.
+`python -m uv` works too, but only with `.venv` active, since `uv` was installed into the
+system Python rather than onto `PATH`.
 
 ## Milestone 2 — Segments and container
 
@@ -132,6 +140,10 @@ Built:
   those dimensions from the handler would re-enter it.
 
 ## Milestone 4 — TextInfoPositionRegion
+
+Removed on 2026-10-14 in commit e1f62f3, with its setting, `documentLines.py` and the hooks that
+filled the free segments, because the flow does the same job better. Other places in this file
+that mention document lines describe the add-on as it was before then.
 
 Built. A `TextInfoRegion` subclass showing the line at a fixed offset from the caret, so
 the segments above and below the focus segment show the surrounding lines of a document.
@@ -345,8 +357,9 @@ with the lease API.
 
 ## Verification owed
 
-Nothing here has been run against a real display or a running NVDA. Before this is
-trustworthy:
+Items 1, 2, 3 and 6 have passed on a Focus 80: see the hardware log below. Item 5 no longer
+applies, since `TextInfoPositionRegion` is removed. The rest have not been run as listed,
+though most of what they check is used every day by the later work:
 
 1. Configuration round trip. Open the settings panel with a display connected that has no
    stored settings, change something, save, reopen. This exercises the `__many__` config
@@ -445,10 +458,10 @@ behaves: the one segment holds the focus, so every claim touching it has to offe
 segment of its own, where a divided display only asks that of a claim that actually evicts
 the focus segment.
 
-Note on type checking: `python -m uv run pyright` reports a large number of findings, most
-of which are strict-mode noise (missing annotations on wx and NVDA call sites, `wx` not
-resolvable). One category is a genuine artifact worth not chasing — see the static analysis
-note in [architecture.md](architecture.md).
+Note on type checking: `uv run pyright` passes clean and runs in CI through prek, with the
+rules NVDA's own configuration turns off left off (commit e4554c5). One kind of finding is an
+artifact of how pyright narrows types and is not worth chasing: see the static analysis note
+in [architecture.md](architecture.md).
 
 ## Open design questions
 

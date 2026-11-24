@@ -34,7 +34,9 @@ Read the files in this order:
    recognition step that decides how a particular thing is presented rather than merely
    whether it flows. Trees and tables are built and on hardware, and tables are feature
    complete for now — recognised, laid out in columns, paged, arranged, saved, and applied
-   again by themselves. Read it before extending `flowObjects.py` or `flowRender.py`.
+   again by themselves. For a display with no band, it also covers a table's row drawn on one
+   line, in browse mode, list views and worksheets. Read it before extending `flowObjects.py`,
+   `flowRender.py` or `tableRowLine.py`.
 8. [tactile-graphics-plan.md](tactile-graphics-plan.md) — feasibility findings and the plan
    for drawing on the Monarch through the HID braille connection the add-on already has.
    Covers what the HID standard does and does not offer, the Monarch's pin geometry, why the
@@ -65,7 +67,7 @@ Read the files in this order:
 12. [excel-chart-plan.md](excel-chart-plan.md) — the plan for drawing an Excel chart from the
    chart's own definition rather than from selected cells, and for keeping the chart stepper on
    the same point as NVDA's own chart navigation, both ways. Builds on NVDA's Office chart objects
-   rather than replacing them. Built and unit tested, not yet on hardware. Read it before
+   rather than replacing them. Built, unit tested and working on hardware. Read it before
    changing the chart seam in `appModules/excel.py`.
 13. [layout-overview-plan.md](layout-overview-plan.md) — the plan for a picture of a web page's
    or a window's main areas, drawn as labelled boxes in their real positions, found without AI
@@ -81,11 +83,11 @@ Read the files in this order:
    Read it before extending the app module API in the readme's developer section.
 15. [pinned-quick-nav-plan.md](pinned-quick-nav-plan.md) — the plan for browse mode's quick
    navigation keys in a pinned document, from the display it is on, without moving the focus or
-   the caret.
+   the caret. Built, and first released in 2026.3.0.
 16. [pin-places-plan.md](pin-places-plan.md) — the plan for pins that make their own room from the
    pinned objects dialog, sharing a place such as the other display and dividing it again as pins
    come and go, so a reader need not set up segments beforehand, and for setting pins aside for
-   now. Built and unit tested, not yet on hardware.
+   now. Built, unit tested and working on hardware.
 17. [braille-viewer-plan.md](braille-viewer-plan.md) — the plan for a viewer that shows a sighted
    teacher or tester every row, segment, member and pin, since NVDA's Braille Viewer forces one
    row, and for simulated mode, the combined display with no displays configured, which lets a

@@ -1,9 +1,9 @@
 # Spatial reading: presenting content across the rows
 
-Read [architecture.md](architecture.md) first, and the "Document lines" section of it in
-particular. This document proposes the next layer: showing content across the whole
-display as one continuous piece, rather than showing the focused line and reading a fixed
-offset into every other segment.
+Read [architecture.md](architecture.md) first. This document proposes the next layer: showing
+content across the whole display as one continuous piece, rather than showing the focused line
+and reading a fixed offset into every other segment, as the document lines of milestone 4 in
+[port-plan.md](port-plan.md) did. The flow replaced them, and they were removed on 2026-10-14.
 
 This is the design, the decisions taken so far, the order of work, and the questions
 still open. Every milestone is now built and unit tested. Milestones 0 to 3 and 5 to 7 have
@@ -650,8 +650,8 @@ the answer is not the same for all of them.
 
 - Moving a `TextInfo` inside a browse mode document is cheap. The virtual buffer's text is
   already in NVDA's process; `move`, `expand` and `text` on a copy do not cross to the
-  application. This is the same primitive `TextInfoPositionRegion` already uses to read
-  the line at an offset, and it is what the document flow source will use.
+  application. This is the primitive the document lines' `TextInfoPositionRegion` used to read
+  the line at an offset, and it is what the document flow source uses.
 - Walking `NVDAObject` relations — `next`, `previous`, `parent`, `firstChild` — is the
   expensive one, because each is a cross process accessibility call, and lists and trees
   are where we would want to do it. This is where a budget is not optional.
@@ -940,10 +940,12 @@ and it needs three things before milestone 3:
   live flow's front end until that was split into `flowBuild`, which left the live path
   living in a file named for a diagnostic.
 - `FlowPanel` in `panels.py` — geometry and ownership only.
-- `documentLines.py` — unchanged, and still what fills free segments outside a flow band.
+- `documentLines.py` — what filled free segments outside a flow band, until the document lines
+  were removed on 2026-10-14.
 - Commands: scroll the band, line scroll within it, and a way back to the cursor.
 - Configuration: per display, naming the display and the rows of the band, and choosing
-  what fills the segments around the focus — nothing, fixed offset lines, or a flow.
+  what fills the segments around the focus. The plan offered nothing, fixed offset lines or a
+  flow; with the fixed offset lines gone, it is nothing or a flow.
 
 ## Non-goals
 

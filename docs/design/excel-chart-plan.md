@@ -7,8 +7,9 @@ Read [chart-point-plan.md](chart-point-plan.md) first, and the module docstring 
 `addon/appModules/excel.py`. This plan adds a second seam beside the sheet seam described there,
 and leans on the stepper, the guide lines and the level line from the chart point plan.
 
-**Status, 8 October 2026: all four steps of the build order are built and unit tested, and none
-of it has been on hardware.** Where the build differs from the design below:
+**Status: all four steps of the build order are built, unit tested, and tried on hardware, where
+they work.** The first hardware run, on 8 October 2026, found the items below marked as found on
+hardware. Where the build differs from the design below:
 
 1. **Excel's chart types are mapped in `appModules/excel.py`**, not in `chartMenu`, so the global
    plugin never sees an Excel constant: the reading arrives with a neutral `kind` (`line`, `bars`,

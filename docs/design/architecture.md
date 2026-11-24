@@ -34,7 +34,9 @@ established there.
   through `tableRowLine.ROW_LINE_SEAM`. Only while the reader has asked for a table, and
   NVDA's own everywhere else.
   The patch on `RowWithFakeNavigation._moveToColumn` redraws the row when NVDA's table
-  commands move to another column, which moves only the navigator object.
+  commands move to another column, which moves only the navigator object. See
+  [structured-presentation-plan.md](structured-presentation-plan.md), "A row on one line, for
+  a display with no band".
 - `keyLayers.py` — layered keys, the model: layers, the fall through chain, what a key does
   while one is on, the stored form and the default layers. NVDA free. See
   [layered-keys-plan.md](layered-keys-plan.md).
@@ -61,8 +63,8 @@ established there.
   member of the plugin, add that member to its protocol. `test_hostProtocols` reads the source and
   fails when a feature uses a plugin member its protocol does not list, when a protocol lists one
   its feature does not use, or when a protocol's member is missing from the plugin or has other
-  parameters there. It checks names and parameters, not types; the strict pyright configuration is
-  not yet clean enough to be a gate.
+  parameters there. It checks names and parameters, not types. Pyright checks the types, and is a
+  gate in CI, but it cannot see that a feature reaches only the members its protocol lists.
 
   A feature changes the plugin's state through the plugin's own operations, never by writing to
   what it reads: `pins` is a read only view, and a pin moves by `movePin` or `landPin`. The same
