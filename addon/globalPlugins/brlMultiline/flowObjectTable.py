@@ -1419,6 +1419,19 @@ class Sheet:
 		return None
 
 
+def offersASheet(obj) -> bool:
+	""":return: whether an object is a cell of a grid an application reads by coordinate.
+
+	True even where the sheet then declines, as Excel's does when it is too wide. Such a cell
+	is never asked what an ordinary table's cell is asked: Excel's `ExcelCell.next` is the cell
+	to its right, so a worksheet's children run the width of the grid.
+	"""
+	try:
+		return callable(getattr(obj, SHEET, None))
+	except Exception:
+		return False
+
+
 def sheetOf(obj):
 	""":return: the grid an object is a cell of, or None if it is not a cell of one.
 
@@ -1427,7 +1440,7 @@ def sheetOf(obj):
 	if obj is None:
 		return None
 	offered = getattr(obj, SHEET, None)
-	if offered is None:
+	if not callable(offered):
 		return None
 	try:
 		return offered()
@@ -1678,12 +1691,13 @@ def tableFor(obj) -> ObjectTable | None:
 	"""
 	if obj is None:
 		return None
-	sheet = sheetOf(obj)
-	if sheet is not None:
+	if offersASheet(obj):
 		# Asked first, because an application that hands over a grid has said something about
-		# itself that no amount of looking at the object could work out — and because the
-		# other three questions below are about shapes a spreadsheet does not have.
-		return SheetTable(sheet)
+		# itself that no amount of looking at the object could work out. A sheet it declines
+		# is no table: the questions below are about shapes a spreadsheet does not have, and
+		# walking a worksheet's children walks a whole row of the grid. See `offersASheet`.
+		sheet = sheetOf(obj)
+		return SheetTable(sheet) if sheet is not None else None
 	table = rowsTable(obj)
 	if table is not None:
 		return RowCellTable(table, row=obj)
@@ -1779,6 +1793,9 @@ def describeTree(obj) -> list:
 	"""
 	lines = [f"  the object: {describeThing(obj)}"]
 	if obj is None:
+		return lines
+	if offersASheet(obj):
+		lines.append("  a cell of a grid read by coordinate, so its tree is not walked")
 		return lines
 	table = rowsTable(obj)
 	lines.append(

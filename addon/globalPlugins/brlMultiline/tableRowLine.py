@@ -31,6 +31,7 @@ goes on the line, panned like a long line of text::
 """
 
 import dataclasses
+import functools
 
 from braille.regions.base import TextRegion
 from braille.regions.NVDAObject import NVDAObjectRegion
@@ -38,12 +39,15 @@ from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
 from . import flowObjectTable, glyphFlow
+from .flow import CallCancelled
 from .flowTableSource import (
+	TableCellRegion,
 	TableHandle,
 	_readCell,
 	cellRegion,
 	columnsShowingIn,
 	rowBeside,
+	rowTextOf,
 	sameTable,
 	tableAt,
 )
@@ -332,7 +336,16 @@ def readRow(obj) -> RowLine | None:
 		return None
 	if handle is None or not sameTable(handle.key, asked.key):
 		return None
-	return buildLine(handle, asked)
+	try:
+		return buildLine(handle, asked)
+	except CallCancelled:
+		log.debugWarning("BrlMultiline: reading a table row was cancelled", exc_info=True)
+		return None
+
+
+CELLS_READ_ONE_AT_A_TIME = 64
+"""The most cells a row reads one at a time, around the reader's own, where it cannot be read in
+one call. Each is a call to the application, and a row is read on every move."""
 
 
 def buildLine(handle: TableHandle, asked: Request) -> RowLine:
@@ -340,17 +353,15 @@ def buildLine(handle: TableHandle, asked: Request) -> RowLine:
 
 	:param handle: the table, on the row to read.
 	:param asked: the request, for its columns.
+	:raises CallCancelled: where NVDA stopped waiting on the application. The cells not read
+		would show as empty ones, so the caller shows NVDA's own presentation instead.
 	"""
-	columns = [column for column in asked.columns if column <= handle.numCols]
-	if not columns:
-		showing = columnsShowingIn(handle)
-		# A hidden column is left out, as the column layout leaves it out, but never the
-		# reader's own, so they keep a cursor.
-		columns = [
-			column
-			for column in range(1, handle.numCols + 1)
-			if showing is None or column in showing or column == handle.col
-		]
+	columns = lineColumns(handle, asked)
+	regions = _regionsInOneCall(handle, columns)
+	if regions is None and len(columns) > CELLS_READ_ONE_AT_A_TIME:
+		here = columns.index(handle.col) if handle.col in columns else 0
+		start = max(0, min(here - CELLS_READ_ONE_AT_A_TIME // 2, len(columns) - CELLS_READ_ONE_AT_A_TIME))
+		columns = columns[start : start + CELLS_READ_ONE_AT_A_TIME]
 	line = RowLine(handle=handle, cells=[])
 	separator = _separator()
 	text, drawn, forward, _back = separator
@@ -361,11 +372,7 @@ def buildLine(handle: TableHandle, asked: Request) -> RowLine:
 		reachFrom = 0
 		if index:
 			reachFrom = line.add(*separator)[1] + afterBar
-		try:
-			region = cellRegion(handle, handle.row, column, live=True)
-		except Exception:
-			log.debugWarning(f"BrlMultiline: could not read column {column} of a table row", exc_info=True)
-			region = None
+		region = regions.get(column) if regions is not None else _cellRegionAt(handle, column)
 		if region is None:
 			# A merged cell, or a row still being built. It keeps its place between the bars.
 			rawStart, brailleStart = len(line.rawText), len(line.brailleCells)
@@ -373,6 +380,92 @@ def buildLine(handle: TableHandle, asked: Request) -> RowLine:
 			rawStart, brailleStart = line.add(*_readCell(region))
 		line.cells.append(LineCell(column, region, rawStart, brailleStart, reachFrom))
 	return line
+
+
+def lineColumns(handle: TableHandle, asked: Request) -> list:
+	""":return: the table's own column numbers the line shows, in order.
+
+	A saved layout's, else every column. A column the table is hiding is left out of both, as
+	the column layout leaves it out, but never the reader's own, so they keep a cursor. A
+	layout whose columns are all hidden gives every column on show.
+
+	:param handle: the table, on the row to read.
+	:param asked: the request, for its columns.
+	"""
+	showing = columnsShowingIn(handle)
+
+	def isShown(column: int) -> bool:
+		return showing is None or column in showing or column == handle.col
+
+	saved = [column for column in asked.columns if column <= handle.numCols and isShown(column)]
+	return saved or [column for column in range(1, handle.numCols + 1) if isShown(column)]
+
+
+def _cellRegionAt(handle: TableHandle, column: int):
+	""":return: one cell of the handle's row, read on its own, or None where it cannot be read."""
+	try:
+		return cellRegion(handle, handle.row, column, live=True)
+	except CallCancelled:
+		raise
+	except Exception:
+		log.debugWarning(f"BrlMultiline: could not read column {column} of a table row", exc_info=True)
+		return None
+
+
+def _regionsInOneCall(handle: TableHandle, columns: list) -> dict | None:
+	""":return: the handle's row as cell regions by column, from one read, or None.
+
+	None where the table cannot read a row in one call, and the cells are read one at a time.
+	Only a worksheet can. The object behind a cell is fetched only when a routing key lands on
+	it; see `flowObjectTable.ObjectCellInfo`.
+
+	:param handle: the table, on the row to read.
+	:param columns: the columns wanted.
+	"""
+	document = handle.document
+	fetch = getattr(document, "cellObject", None)
+	rows = getattr(document, "rowObject", None)
+	if not columns or not callable(fetch) or not callable(rows):
+		return None
+	texts = {}
+	for first, last in spansOf(columns):
+		said = rowTextOf(handle, handle.row, first, last)
+		if said is None:
+			return None
+		texts.update(zip(range(first, last + 1), said, strict=True))
+	item = rows(handle.row)
+	if item is None:
+		return None
+	regions = {}
+	for column in columns:
+		info = flowObjectTable.ObjectCellInfo(
+			texts[column],
+			fetch=functools.partial(fetch, item, column),
+		)
+		region = TableCellRegion(document, info, live=True)
+		region.update()
+		regions[column] = region
+	return regions
+
+
+LONGEST_GAP_READ = 16
+"""The most unwanted columns a read in one call spans to reach the next wanted one. A longer
+gap, such as the empty columns between the data and a reader far to the right of it, starts
+another read."""
+
+
+def spansOf(columns: list) -> list:
+	""":return: the (first, last) spans that read the columns, joined across short gaps.
+
+	:param columns: the column numbers wanted.
+	"""
+	spans = []
+	for column in sorted(set(columns)):
+		if spans and column - spans[-1][1] - 1 <= LONGEST_GAP_READ:
+			spans[-1][1] = column
+		else:
+			spans.append([column, column])
+	return [tuple(span) for span in spans]
 
 
 class TableRowLineRegion(CursorManagerRegion):

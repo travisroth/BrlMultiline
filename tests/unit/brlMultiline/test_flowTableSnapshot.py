@@ -324,3 +324,34 @@ class TestTakingASnapshot(SnapshotTestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestLookingUpACell(unittest.TestCase):
+	def test_everyCellIsFoundWithoutScanningForEachOne(self):
+		rows, columns = range(1, 10), range(1, 101)
+		cells = [SnapshotCell(row, column, "x", "") for row in rows for column in columns]
+		snapshot = Snapshot(cells=cells, rowsRead=set(rows))
+		with mock.patch.object(SnapshotCell, "covers", side_effect=AssertionError("scanned")):
+			for cell in cells:
+				self.assertIs(snapshot.cellAt(cell.row, cell.column), cell)
+
+	def test_aMergedCellIsAtEveryPositionItCovers(self):
+		merged = SnapshotCell(1, 1, "merged", "", rowSpan=2, columnSpan=2)
+		ordinary = SnapshotCell(2, 3, "separate", "")
+		snapshot = Snapshot(cells=[merged, ordinary], rowsRead={1, 2})
+		self.assertIs(snapshot.cellAt(2, 2), merged)
+		self.assertIs(snapshot.cellAt(2, 3), ordinary)
+		self.assertIsNone(snapshot.cellAt(2, 4))
+		self.assertIsNone(snapshot.cellAt(3, 1))
+
+	def test_theFirstCellCoveringAPositionWins(self):
+		"""As a scan in order finds it."""
+		first = SnapshotCell(1, 1, "first", "", columnSpan=2)
+		second = SnapshotCell(1, 2, "second", "")
+		self.assertIs(Snapshot(cells=[first, second], rowsRead={1}).cellAt(1, 2), first)
+
+	def test_aCellAddedLaterIsFound(self):
+		snapshot = Snapshot(cells=[SnapshotCell(1, 1, "a", "")], rowsRead={1})
+		self.assertIsNone(snapshot.cellAt(1, 2))
+		snapshot.cells.append(SnapshotCell(1, 2, "b", ""))
+		self.assertEqual(snapshot.cellAt(1, 2).text, "b")

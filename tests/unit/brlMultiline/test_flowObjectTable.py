@@ -1103,6 +1103,51 @@ class BulkSheet(FakeSheet):
 		return dict(self.headers) if self.headers else self.saysThereAreNone
 
 
+class _RowOfTheGrid(FakeNavigatorObject):
+	"""A worksheet, whose children are a row of its cells and which counts any walk of them."""
+
+	def __init__(self):
+		super().__init__("Sheet1", role="TABLE")
+		self.walked = 0
+
+	@property
+	def children(self):
+		self.walked += 1
+		cells = []
+		for column in range(1, 4):
+			cell = FakeNavigatorObject(f"cell {column}", role="TABLECELL")
+			cell.columnNumber = column
+			cell.parent = self
+			cells.append(cell)
+		return cells
+
+
+class TestACellWhoseSheetDeclines(unittest.TestCase):
+	"""Excel declines a sheet that is too wide, as it is once the reader is far to the right."""
+
+	def _cell(self):
+		cell = FakeNavigatorObject("XFD1", role="TABLECELL")
+		cell.columnNumber = 16384
+		cell.parent = _RowOfTheGrid()
+		cell.brlMultilineSheet = lambda: None
+		return cell
+
+	def test_isNoTable(self):
+		self.assertIsNone(flowObjectTable.tableFor(self._cell()))
+
+	def test_andItsWorksheetIsNotWalked(self):
+		cell = self._cell()
+		flowObjectTable.tableFor(cell)
+		flowObjectTable.describeTree(cell)
+		self.assertEqual(cell.parent.walked, 0)
+
+	def test_whileACellOfferingNoSheetHasItsParentDescribed(self):
+		cell = self._cell()
+		del cell.brlMultilineSheet
+		flowObjectTable.describeTree(cell)
+		self.assertGreater(cell.parent.walked, 0)
+
+
 class TestMeasuringASheetThatReadsItsOwnRows(unittest.TestCase):
 	"""Measuring wants text and throws everything else away, and a grid can often hand over a
 	row of it far more cheaply than the flow can assemble one.

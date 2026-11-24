@@ -209,6 +209,8 @@ def segmentOnPressedDisplay(gesture, container, ordinal: int) -> int | None:
 	"""
 	deviceMap = devices.deviceMap()
 	if not deviceMap:
+		if _isActingForAnotherDisplay(gesture):
+			return None
 		return ordinal if ordinal < len(container.rects) else None
 	held = {device.driverName: devices.segmentsForDevice(container.rects, device) for device in deviceMap}
 	display = _displayFor(gesture)
@@ -220,12 +222,41 @@ def segmentOnPressedDisplay(gesture, container, ordinal: int) -> int | None:
 
 
 def isPressedDisplayGone(gesture) -> bool:
-	""":return: whether a gesture is for a display that is not among the combined displays now."""
+	""":return: whether a gesture is for a display that is not connected now.
+
+	One of the combined displays, or, with one display connected on its own, a keyboard binding
+	acting for another. See `_isActingForAnotherDisplay`.
+	"""
 	deviceMap = devices.deviceMap()
+	if not deviceMap:
+		return _isActingForAnotherDisplay(gesture)
 	display = _displayFor(gesture)
-	if not deviceMap or display is None:
+	if display is None:
 		return False
 	return all(device.driverName != display for device in deviceMap)
+
+
+def _isActingForAnotherDisplay(gesture) -> bool:
+	""":return: whether a keyboard binding acts for a display other than the one connected alone.
+
+	Only a binding that names its display, since a display's own key is on the display that is
+	connected. False wherever the connected display's name cannot be read, which keeps the
+	segment a key on a lone display asks for.
+	"""
+	from . import keyLayerDispatch
+
+	named = getattr(gesture, keyLayerDispatch.ACTS_FOR_ATTRIBUTE, None) if gesture is not None else None
+	if not named:
+		return False
+	try:
+		import braille
+
+		handler = braille.handler
+		connected = getattr(getattr(handler, "display", None), "name", None)
+	except Exception:
+		log.debugWarning("BrlMultiline: could not tell which display is connected", exc_info=True)
+		return False
+	return bool(connected) and connected != named
 
 
 def nativeSegmentForSource(source: str | None, container) -> int | None:

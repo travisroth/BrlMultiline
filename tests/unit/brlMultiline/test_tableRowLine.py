@@ -10,6 +10,7 @@ NVDA's own**, so a page read with a request standing reads exactly as it did bef
 """
 
 import unittest
+from unittest import mock
 
 from ._stubs import (
 	CursorManagerRegion,
@@ -25,6 +26,7 @@ from ._stubs import (
 installStubs()
 
 from brlMultiline import flowObjectTable, patches, tableRowLine  # noqa: E402
+from brlMultiline.flow import CallCancelled  # noqa: E402
 from brlMultiline.flowTableSource import tableAt  # noqa: E402
 
 GRID = [
@@ -140,6 +142,15 @@ class TestReadingTheRow(RowLineTestCase):
 		page = self.page(row=3, col=1)
 		self.ask(page)
 		self.assertEqual(self.region(page).rawText, "MSFT |  | -0.4")
+
+	def test_aCancelledReadGivesNvdasLineBack(self):
+		"""Not a row of empty cells, which is what the cells not read would show as."""
+		page = self.page()
+		self.ask(page)
+		with mock.patch.object(tableRowLine, "cellRegion", side_effect=CallCancelled) as cells:
+			region = self.region(page)
+		self.assertEqual(cells.call_count, 1)
+		self.assertNotIn(" | ", region.rawText)
 
 	def test_aSavedLayoutsColumnsAndOrderAreKept(self):
 		page = self.page(col=3)
@@ -686,3 +697,95 @@ class TestMovingInAWorksheetsRow(SheetRowLineTestCase):
 		self.ask()
 		self.region().nextLine()
 		self.assertEqual(self.sheet.goneTo, [])
+
+
+class TestAWorksheetsColumns(SheetRowLineTestCase):
+	def test_aSavedLayoutLeavesAHiddenColumnOut(self):
+		self.sheet.columnsShowing = lambda: {1, 3}
+		self.moveTo(2, 1)
+		self.ask(columns=(3, 2, 1))
+		self.assertEqual(self.region().rawText, "1310 | North")
+
+	def test_butKeepsTheReadersOwn(self):
+		self.sheet.columnsShowing = lambda: {1, 3}
+		self.ask(columns=(3, 2, 1))
+		self.assertEqual(self.region().rawText, "1310 | 1200 | North")
+
+	def test_aLayoutWithEveryColumnHiddenGivesTheColumnsOnShow(self):
+		self.sheet.columnsShowing = lambda: {1, 3}
+		self.moveTo(2, 1)
+		self.ask(columns=(2,))
+		self.assertEqual(self.region().rawText, "North | 1310")
+
+	def test_aCancelledReadGivesTheModulesReadingBack(self):
+		self.ask()
+		with mock.patch.object(tableRowLine, "cellRegion", side_effect=CallCancelled) as cells:
+			region = self.region()
+		self.assertEqual(cells.call_count, 1)
+		self.assertFalse(region.isReadingARow)
+
+
+class TestTheSpansARowIsReadIn(unittest.TestCase):
+	def test_nearbyColumnsAreOneSpan(self):
+		self.assertEqual(tableRowLine.spansOf([1, 2, 3, 5]), [(1, 5)])
+
+	def test_aLongGapStartsAnotherSpan(self):
+		"""The data in A to F and the reader far to the right of it."""
+		self.assertEqual(tableRowLine.spansOf([1, 2, 3, 4, 5, 6, 16384]), [(1, 6), (16384, 16384)])
+
+	def test_aGapAsLongAsTheLongestReadIsStillOneSpan(self):
+		last = 2 + tableRowLine.LONGEST_GAP_READ
+		self.assertEqual(tableRowLine.spansOf([1, last]), [(1, last)])
+		self.assertEqual(tableRowLine.spansOf([1, last + 1]), [(1, 1), (last + 1, last + 1)])
+
+	def test_theOrderTheColumnsAreShownInDoesNotMatter(self):
+		self.assertEqual(tableRowLine.spansOf([3, 1, 2]), [(1, 3)])
+
+
+class TestAWorksheetReadInOneCall(SheetRowLineTestCase):
+	"""A row read through the sheet's bulk text, with no cell object built until routing."""
+
+	def setUp(self):
+		super().setUp()
+		self.built = []
+		cellAt = self.sheet.cellAt
+
+		def counted(row, column):
+			self.built.append((row, column))
+			return cellAt(row, column)
+
+		self.sheet.cellAt = counted
+		self.sheet.textRow = lambda row, first, last: self.sheet.rows[row - 1][first - 1 : last]
+		self.focus = cellAt(2, 2)
+
+	def test_theRowIsDrawnWithoutBuildingACell(self):
+		self.ask()
+		region = self.region()
+		self.assertEqual(region.rawText, "North | 1200 | 1310")
+		self.assertEqual(region.brailleCursorPos, region.rawText.index("1200"))
+		self.assertEqual(self.built, [])
+
+	def test_routingBuildsTheOneCellItGoesTo(self):
+		self.ask()
+		region = self.region()
+		region.routeTo(region.rawText.index("1310"))
+		self.assertEqual(self.built, [(2, 3)])
+		self.assertEqual(self.sheet.goneTo, [(2, 3)])
+
+	def test_aShortAnswerIsReadCellByCell(self):
+		self.sheet.textRow = lambda row, first, last: ["North"]
+		self.ask()
+		self.assertEqual(self.region().rawText, "North | 1200 | 1310")
+		self.assertEqual(len(self.built), 3)
+
+
+class TestAWideRowReadOneCellAtATime(SheetRowLineTestCase):
+	def test_onlyTheCellsAroundTheReadersAreRead(self):
+		wide = [[f"{row}.{column}" for column in range(1, 201)] for row in range(1, 4)]
+		self.sheet = Workbook(wide, at=(2, 150))
+		self.focus = self.sheet.cellAt(2, 150)
+		self.ask()
+		region = self.region()
+		self.assertEqual(len(region.rawText.split(" | ")), tableRowLine.CELLS_READ_ONE_AT_A_TIME)
+		self.assertIn("2.150", region.rawText)
+		self.assertTrue(region.rawText.startswith("2.118 | "))

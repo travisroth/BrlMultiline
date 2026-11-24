@@ -296,6 +296,39 @@ class TestASegmentOfThePressedDisplay(PanningTestCase):
 	def test_aKeyOnNoDisplayIsNotGone(self):
 		self.assertFalse(panning.isPressedDisplayGone(None))
 
+	def actingForTheFocusWithTheMonarchAlone(self):
+		""":return: a keyboard key bound to act for the Focus, with the Monarch connected on its own."""
+		from brlMultiline import keyLayerDispatch
+
+		self.handler.display = types.SimpleNamespace(name=MONARCH)
+		gesture = types.SimpleNamespace()
+		setattr(gesture, keyLayerDispatch.ACTS_FOR_ATTRIBUTE, FOCUS)
+		return gesture
+
+	def test_aDisplayNamedButNotConnectedAloneHasNoSegment(self):
+		container = fakeContainer(0, COMPOSITE_RECTS[:2])
+		self.assertIsNone(
+			panning.segmentOnPressedDisplay(self.actingForTheFocusWithTheMonarchAlone(), container, 0),
+		)
+
+	def test_andIsGone(self):
+		self.assertTrue(panning.isPressedDisplayGone(self.actingForTheFocusWithTheMonarchAlone()))
+
+	def test_aBindingForTheDisplayConnectedAloneHasItsSegment(self):
+		from brlMultiline import keyLayerDispatch
+
+		self.handler.display = types.SimpleNamespace(name=MONARCH)
+		gesture = types.SimpleNamespace()
+		setattr(gesture, keyLayerDispatch.ACTS_FOR_ATTRIBUTE, MONARCH)
+		container = fakeContainer(0, COMPOSITE_RECTS[:2])
+		self.assertEqual(panning.segmentOnPressedDisplay(gesture, container, 1), 1)
+		self.assertFalse(panning.isPressedDisplayGone(gesture))
+
+	def test_aKeyboardKeyForNoDisplayKeepsTheLoneDisplaysSegment(self):
+		self.handler.display = types.SimpleNamespace(name=MONARCH)
+		container = fakeContainer(0, COMPOSITE_RECTS[:2])
+		self.assertEqual(panning.segmentOnPressedDisplay(None, container, 0), 0)
+
 
 class TestWhichSegment(PanningTestCase):
 	"""A display's keys drive that display."""

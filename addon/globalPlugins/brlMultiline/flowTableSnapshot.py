@@ -59,6 +59,11 @@ class Snapshot:
 	rowsRead: set[int] = dataclasses.field(default_factory=set)
 	"""The rows the walk saw a cell of."""
 
+	_index: dict | None = dataclasses.field(default=None, init=False, repr=False, compare=False)
+	"""Each read position's cell, built on the first lookup. See `_positions`."""
+
+	_indexedSize: tuple = dataclasses.field(default=(), init=False, repr=False, compare=False)
+
 	def cellAt(self, row: int, column: int) -> SnapshotCell | None:
 		""":return: the cell at a position, a merged cell at every position it covers, or None.
 
@@ -68,10 +73,26 @@ class Snapshot:
 		"""
 		if row not in self.rowsRead:
 			return None
-		for cell in self.cells:
-			if cell.covers(row, column):
-				return cell
-		return None
+		return self._positions().get((row, column))
+
+	def _positions(self) -> dict:
+		""":return: every position in a read row, mapped to the first cell that covers it.
+
+		The first, as a scan of `cells` in order finds it. Built again if cells or rows have been
+		added since, so it never disagrees with them.
+		"""
+		size = (len(self.cells), len(self.rowsRead))
+		if self._index is None or self._indexedSize != size:
+			index: dict = {}
+			for cell in self.cells:
+				for row in range(cell.row, cell.row + cell.rowSpan):
+					if row not in self.rowsRead:
+						continue
+					for column in range(cell.column, cell.column + cell.columnSpan):
+						index.setdefault((row, column), cell)
+			self._index = index
+			self._indexedSize = size
+		return self._index
 
 
 def _isCellOf(field, tableID) -> bool:
