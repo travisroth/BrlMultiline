@@ -273,6 +273,13 @@ class RowLine:
 	brailleCells: list = dataclasses.field(default_factory=list)
 	rawToBraillePos: list = dataclasses.field(default_factory=list)
 	brailleToRawPos: list = dataclasses.field(default_factory=list)
+	columnsBefore: list = dataclasses.field(default_factory=list)
+	"""The columns shown before the cells read, where only part of the row was read."""
+	columnsAfter: list = dataclasses.field(default_factory=list)
+	"""The columns shown after the cells read, where only part of the row was read.
+
+	Panning goes to these before it goes to another row, so no column is passed over. See
+	`CELLS_READ_ONE_AT_A_TIME`."""
 
 	def cellFor(self, column: int) -> LineCell | None:
 		""":return: the cell of one column, or None where the line does not show that column."""
@@ -358,11 +365,14 @@ def buildLine(handle: TableHandle, asked: Request) -> RowLine:
 	"""
 	columns = lineColumns(handle, asked)
 	regions = _regionsInOneCall(handle, columns)
+	line = RowLine(handle=handle, cells=[])
 	if regions is None and len(columns) > CELLS_READ_ONE_AT_A_TIME:
 		here = columns.index(handle.col) if handle.col in columns else 0
 		start = max(0, min(here - CELLS_READ_ONE_AT_A_TIME // 2, len(columns) - CELLS_READ_ONE_AT_A_TIME))
-		columns = columns[start : start + CELLS_READ_ONE_AT_A_TIME]
-	line = RowLine(handle=handle, cells=[])
+		end = start + CELLS_READ_ONE_AT_A_TIME
+		line.columnsBefore = columns[:start]
+		line.columnsAfter = columns[end:]
+		columns = columns[start:end]
 	separator = _separator()
 	text, drawn, forward, _back = separator
 	# Where the bar ends inside the separator, in braille: the space after it is the next cell's.
@@ -448,6 +458,48 @@ def _regionsInOneCall(handle: TableHandle, columns: list) -> dict | None:
 	return regions
 
 
+def goToRestOfRow(line: RowLine, forward: bool) -> int | None:
+	"""Put the reader in the nearest column of the row that was not read, if there is one.
+
+	:param line: the row on show, of which only part may have been read.
+	:param forward: whether to go to the columns after the cells read, or those before.
+	:return: the column gone to, or None where the whole row was read that way.
+	:raises CallCancelled: where NVDA stopped waiting on the application.
+	"""
+	handle = line.handle
+	columns = line.columnsAfter if forward else list(reversed(line.columnsBefore))
+	for column in columns:
+		region = cellRegion(handle, handle.row, column, live=True)
+		if region is not None:
+			region.routeTo(0)
+			return column
+	return None
+
+
+_PRESENTATION = ("cursorPos", "brailleCursorPos", "hidePreviousRegions", "focusToHardLeft")
+"""What drawing a row sets on a region and NVDA's own update does not always set back."""
+
+
+def keepNvdasPresentation(region) -> None:
+	"""Remember what NVDA had set of `_PRESENTATION`, before a row is first drawn over it."""
+	held = vars(region)
+	if "_nvdaPresentation" not in held:
+		region._nvdaPresentation = {name: held[name] for name in _PRESENTATION if name in held}
+
+
+def restoreNvdasPresentation(region) -> None:
+	"""Put back what `keepNvdasPresentation` remembered, so NVDA's update starts from its own."""
+	held = vars(region)
+	saved = held.pop("_nvdaPresentation", None)
+	if saved is None:
+		return
+	for name in _PRESENTATION:
+		if name in saved:
+			setattr(region, name, saved[name])
+		else:
+			held.pop(name, None)
+
+
 LONGEST_GAP_READ = 16
 """The most unwanted columns a read in one call spans to reach the next wanted one. A longer
 gap, such as the empty columns between the data and a reader far to the right of it, starts
@@ -482,8 +534,10 @@ class TableRowLineRegion(CursorManagerRegion):
 		line = readRow(self.obj)
 		self._rowLine = line
 		if line is None:
+			restoreNvdasPresentation(self)
 			super().update()
 			return
+		keepNvdasPresentation(self)
 		# What NVDA's own update would have recorded about control fields, which is nothing:
 		# a shape must never be drawn over a cell's text on the strength of a reading before it.
 		glyphFlow.restartFields(self)
@@ -546,7 +600,7 @@ class TableRowLineRegion(CursorManagerRegion):
 		"""Panning on past the end of the row: the first cell of the next one."""
 		if self._rowLine is None:
 			return super().nextLine()
-		if self._toRow(1):
+		if self._toRestOfRow(forward=True) or self._toRow(1):
 			return None
 		# The last row. NVDA's own next line, from the last cell, walks out of the table.
 		self._readFrom(self._rowLine.cells[-1:])
@@ -560,11 +614,20 @@ class TableRowLineRegion(CursorManagerRegion):
 		"""
 		if self._rowLine is None:
 			return super().previousLine(start)
-		if self._toRow(-1, fromTheEnd=not start):
+		if self._toRestOfRow(forward=False) or self._toRow(-1, fromTheEnd=not start):
 			return None
 		# The first row. NVDA's own previous line, from the first cell, walks out of the table.
 		self._readFrom(self._rowLine.cells[:1])
 		return super().previousLine(start)
+
+	def _toRestOfRow(self, forward: bool) -> bool:
+		""":return: whether the caret went to a column of this row that was not read. See
+		`goToRestOfRow`."""
+		try:
+			return goToRestOfRow(self._rowLine, forward) is not None
+		except Exception:
+			log.debugWarning("BrlMultiline: could not go on along a table row", exc_info=True)
+			return False
 
 	def _toRow(self, by: int, fromTheEnd: bool = False) -> bool:
 		"""Put the caret in the row beside this one, in the first cell it has of those shown.
@@ -688,7 +751,9 @@ class _ObjectRowLine:
 		line = readObjectRow(self.obj, canReadASheet=bool(getattr(type(self), ROW_LINE_SEAM, False)))
 		self._rowLine = line
 		if line is None:
+			restoreNvdasPresentation(self)
 			return False
+		keepNvdasPresentation(self)
 		glyphFlow.restartFields(self)
 		self.rawText = line.rawText
 		self.rawTextTypeforms = []
@@ -743,7 +808,8 @@ class _ObjectRowLine:
 		"""
 		if self._rowLine is None:
 			return super().nextLine()
-		self._toRow(1)
+		if not self._toRestOfRow(forward=True):
+			self._toRow(1)
 		return None
 
 	def previousLine(self, start=False):
@@ -753,8 +819,29 @@ class _ObjectRowLine:
 		"""
 		if self._rowLine is None:
 			return super().previousLine(start)
-		self._toRow(-1, fromTheEnd=not start)
+		if not self._toRestOfRow(forward=False):
+			self._toRow(-1, fromTheEnd=not start)
 		return None
+
+	def _toRestOfRow(self, forward: bool) -> bool:
+		""":return: whether the reader went to a column of this row that was not read.
+
+		Drawn again, since in a list the focus stays on the row. See `routeTo` and
+		`goToRestOfRow`.
+		"""
+		global _column
+		try:
+			column = goToRestOfRow(self._rowLine, forward)
+		except Exception:
+			log.debugWarning("BrlMultiline: could not go on along a list's row", exc_info=True)
+			return False
+		if column is None:
+			return False
+		_column = column
+		import braille
+
+		redraw(braille.handler)
+		return True
 
 	def _toRow(self, by: int, fromTheEnd: bool = False) -> bool:
 		"""Go to the row beside this one, in the first cell it has of those shown.

@@ -1164,11 +1164,17 @@ def headerTextOf(cell) -> str:
 
 
 def nameAndValueOf(cell) -> tuple:
-	""":return: a cell's name and value, each stripped, each "" where it has none."""
+	""":return: a cell's name and value, each stripped, each "" where it has none.
+
+	:raises CallCancelled: where NVDA stopped waiting on the application, which is not a cell
+		with nothing in it. See `flow.CallCancelled`.
+	"""
 	found = []
 	for what in ("name", "value"):
 		try:
 			said = getattr(cell, what, None)
+		except CallCancelled:
+			raise
 		except Exception:
 			log.debugWarning(f"Could not read a cell's {what}", exc_info=True)
 			said = None

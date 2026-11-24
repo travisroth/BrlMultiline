@@ -152,6 +152,19 @@ class TestReadingTheRow(RowLineTestCase):
 		self.assertEqual(cells.call_count, 1)
 		self.assertNotIn(" | ", region.rawText)
 
+	def test_andSoDoesOneCancelledWhileReadingACellsText(self):
+		class Cancelled:
+			@property
+			def text(self):
+				raise CallCancelled()
+
+		page = self.page()
+		self.ask(page)
+		with mock.patch.object(page, "_getTableCellAt", return_value=Cancelled()) as cells:
+			region = self.region(page)
+		self.assertEqual(cells.call_count, 1)
+		self.assertNotIn(" | ", region.rawText)
+
 	def test_aSavedLayoutsColumnsAndOrderAreKept(self):
 		page = self.page(col=3)
 		self.ask(page, columns=(3, 1))
@@ -789,3 +802,46 @@ class TestAWideRowReadOneCellAtATime(SheetRowLineTestCase):
 		self.assertEqual(len(region.rawText.split(" | ")), tableRowLine.CELLS_READ_ONE_AT_A_TIME)
 		self.assertIn("2.150", region.rawText)
 		self.assertTrue(region.rawText.startswith("2.118 | "))
+
+	def _wide(self):
+		wide = [[f"{row}.{column}" for column in range(1, 201)] for row in range(1, 4)]
+		self.sheet = Workbook(wide, at=(2, 150))
+		self.focus = self.sheet.cellAt(2, 150)
+		self.ask()
+		return self.region()
+
+	def test_panningOnGoesToTheColumnsNotReadBeforeTheNextRow(self):
+		self._wide().nextLine()
+		self.assertEqual(self.sheet.goneTo, [(2, 182)])
+
+	def test_andPanningBackToTheColumnsBefore(self):
+		self._wide().previousLine()
+		self.assertEqual(self.sheet.goneTo, [(2, 117)])
+
+	def test_aRowReadWholeStillPansToTheNextRow(self):
+		self.ask()
+		self.region().nextLine()
+		self.assertEqual(self.sheet.goneTo, [(3, 1)])
+
+
+class TestARereadCancelledAfterARowWasShown(SheetRowLineTestCase):
+	def test_givesBackNvdasCursorAndLayout(self):
+		"""What drawing the row set must not outlast it."""
+		ordinary = self.region()
+		before = (ordinary.cursorPos, ordinary.hidePreviousRegions, ordinary.focusToHardLeft)
+		self.ask()
+		region = self.region()
+		self.assertTrue(region.isReadingARow)
+		with mock.patch.object(tableRowLine, "cellRegion", side_effect=CallCancelled):
+			region.update()
+		self.assertFalse(region.isReadingARow)
+		self.assertEqual((region.cursorPos, region.hidePreviousRegions, region.focusToHardLeft), before)
+
+	def test_andTheRowIsShownAgainOnTheNextRead(self):
+		self.ask()
+		region = self.region()
+		with mock.patch.object(tableRowLine, "cellRegion", side_effect=CallCancelled):
+			region.update()
+		region.update()
+		self.assertTrue(region.isReadingARow)
+		self.assertTrue(region.hidePreviousRegions)

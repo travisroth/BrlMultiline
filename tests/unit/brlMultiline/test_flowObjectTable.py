@@ -1103,6 +1103,29 @@ class BulkSheet(FakeSheet):
 		return dict(self.headers) if self.headers else self.saysThereAreNone
 
 
+class TestACellReadThatIsCancelled(unittest.TestCase):
+	"""Not a cell with nothing in it, which would draw as an empty place between the bars."""
+
+	def _cell(self, fails):
+		class Cell:
+			@property
+			def name(self):
+				raise fails
+
+			value = None
+
+		return Cell()
+
+	def test_goesUpToWhoeverAsked(self):
+		from brlMultiline.flow import CallCancelled
+
+		with self.assertRaises(CallCancelled):
+			flowObjectTable.nameAndValueOf(self._cell(CallCancelled()))
+
+	def test_whileAnyOtherFailureIsAnEmptyCell(self):
+		self.assertEqual(flowObjectTable.nameAndValueOf(self._cell(RuntimeError("gone"))), ("", ""))
+
+
 class _RowOfTheGrid(FakeNavigatorObject):
 	"""A worksheet, whose children are a row of its cells and which counts any walk of them."""
 

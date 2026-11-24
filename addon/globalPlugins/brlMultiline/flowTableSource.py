@@ -549,9 +549,14 @@ def _textOf(info) -> str:
 	""":return: a cell's text, stripped of the whitespace the document pads it with.
 
 	Leading and trailing space is layout, and would waste column cells.
+
+	:raises CallCancelled: where NVDA stopped waiting on the application. Not an empty cell;
+		see `cellRegion`.
 	"""
 	try:
 		return (info.text or "").strip()
+	except CallCancelled:
+		raise
 	except Exception:
 		log.debugWarning("Could not read a table cell", exc_info=True)
 		return ""
