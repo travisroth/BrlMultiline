@@ -457,6 +457,10 @@ never moves while you are reading it.
   document.
 - Panning moves the browse mode cursor to what is at the top of the display, so speech and
   braille stay together, and the arrow keys continue from what is under your hands.
+- The flow follows the caret, not the review cursor. While braille is tethered to review,
+  whether you chose that with NVDA+Control+T or NVDA did it when you moved the review cursor,
+  the flow's rows show review exactly as NVDA does, and the flow comes back when braille is
+  tethered to focus again. A flow that follows the review cursor is planned.
 - A control inside a page is still read as part of that page. When you type into it, the
   row you are on comes from the real edit control, so the caret and the new text stay current,
   while the label and the content after it still come from the page.

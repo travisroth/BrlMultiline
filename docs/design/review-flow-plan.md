@@ -9,7 +9,8 @@ Read [spatial-reading-plan.md](spatial-reading-plan.md) first, and
 [flow-last-region-audit.md](flow-last-region-audit.md), whose "Review tether" item this plan
 answers.
 
-Status: planned. Nothing below is built.
+Status: phase 0 done, phase 1 built, unit tested and confirmed on hardware. Phases 2 to 4 are
+planned. "What happens today" describes the flow before phase 1.
 
 ## What happens today
 
@@ -135,8 +136,9 @@ review tether.
    review move before following.
 6. `flowBand.FlowBand`: `_target` through `flowCursor`, and standing down for decision 9.
 7. A change of tether clears NVDA's buffer (`setTether` calls `mainBuffer.clear()`), and the next
-   focus or review move rebuilds it. The band then follows the new cursor. Worth confirming in
-   phase 0 that the container survives the clear as it survives a display change.
+   focus or review move rebuilds it. The band then follows the new cursor. Phase 0 confirmed that
+   the container survives the clear. The band's own `clear` puts its active block straight back,
+   which is why phase 1 needs a patch on `setTether`: see "Phase 1 as built".
 
 ## Order of work
 
@@ -149,7 +151,11 @@ review tether.
    the probe; its docstring is the runbook. Done, apart from a console in its own conhost window
    and screen review: see "Phase 0 results" below.
 2. **Phase 1, stand down.** Decision 9 alone, so a review tether shows NVDA's own review until the
-   rest is built. Unit tested against stand-ins for the tether.
+   rest is built. Unit tested against stand-ins for the tether. Built, as the whole of the review
+   tether rather than only screen review and display models, since until phase 2 the flow cannot
+   read by review anywhere: see "Phase 1 as built". Hardware check: in Windows Terminal, review
+   by line and confirm the band shows the review line as NVDA does; type, and confirm the flow
+   comes back at the prompt; press NVDA+Control+T both ways and confirm the same.
 3. **Phase 2, read by review.** `flowCursor`, decisions 1 to 4, and the source and region changes.
    Review keys move the window. Hardware check: review by line through a long command's output in
    Windows Terminal on the Monarch, then in Notepad and a web page.
@@ -162,6 +168,42 @@ review tether.
    the output and pan; confirm the display and the review cursor hold while output arrives, the
    next review key moves on from where the reader was, and a keystroke returns the display to the
    prompt.
+
+## Phase 1 as built
+
+Under a review tether the flow band stands down and NVDA presents review itself, in the band's
+rows, as it does for a focus that cannot be flowed. The band keeps its claim, so the rows stay
+the band's and the flow comes back in them.
+
+1. **The whole review tether, not only screen review.** Decision 9 named screen review and
+   display models, but until phase 2 the flow reads only by the caret, so any review tether is
+   better shown by NVDA. Phase 2 narrows this back to decision 9 as written.
+2. **One question.** `flowCursor.isReviewing(handler)` asks NVDA's `getTether`, and is False
+   when there is no handler or it cannot answer, so a failure leaves the flow on rather than
+   blanking it. `FlowBand.isStandingDownForReview` asks it. Phase 2 grows `flowCursor` into the
+   module decision 2 describes.
+3. **Three places refuse.** `FlowBand.showObject` stands down and returns False, so
+   `handleFocusRegions` hands NVDA's review regions back and NVDA places them, which covers a
+   review move to another object. `FlowBand.refresh` forgets its controller without clearing what
+   NVDA has drawn, which covers a band started or rebuilt under a review tether.
+   `FlowBand.standDownForReview` cancels the band's timers, forgets the controller and detaches
+   the segment.
+4. **The tether change itself, through a patch on `setTether`.** NVDA's `setTether` clears the
+   buffer, and `FlowBufferSegment.clear` puts the active block straight back, so the review move
+   that follows would find the flow's block as the last region, mark it for update, and never
+   build review regions: the flow would go on following the caret. `patches` wraps `setTether`,
+   and when the tether has changed to review it has the band stand down, leaving it empty, so
+   NVDA's `handleReviewMove` builds review regions and offers them to the band, which refuses
+   them. A tether set to review again, as every review command does under an automatic tether,
+   changes nothing and leaves the band alone. A failure while standing down is logged and never
+   stops the tether changing.
+5. **Coming back needs nothing.** The tether back to focus clears every segment, and NVDA then
+   builds focus regions, through `handleCaretMove` (an automatic tether) or `handleGainFocus`
+   (NVDA+Control+T), which reach `handleFocusRegions` and start the flow again.
+
+`test_reviewTether` covers each, and fails with the stand-down taken out of the patch. Confirmed
+on the Monarch in Windows Terminal: a review tether switches the band to NVDA's own review
+presentation.
 
 ## Phase 0 results
 

@@ -28,6 +28,7 @@ from logHandler import log
 
 from . import (
 	bmConfig,
+	flowCursor,
 	flowForms,
 	flowObjects,
 	flowQuickNav,
@@ -618,6 +619,31 @@ class FlowBand(PanelOwner):
 		except Exception:
 			log.debugWarning("Could not give back the flow band", exc_info=True)
 
+	def isStandingDownForReview(self) -> bool:
+		"""Whether braille is tethered to review, when the band leaves the display to NVDA.
+
+		See `flowCursor`.
+		"""
+		return flowCursor.isReviewing(self._handler())
+
+	def standDownForReview(self) -> None:
+		"""Leave the band to NVDA's review presentation, keeping the claim.
+
+		The band becomes an ordinary segment, as for a focus that cannot be flowed, so the review
+		regions NVDA builds next are placed in it. The flow comes back with the next focus or caret
+		regions NVDA builds once braille is tethered to focus again.
+		"""
+		self._cancelSettle()
+		self._cancelLiveRead()
+		self._cancelFill()
+		if self.controller is not None:
+			self.controller.onChanged = None
+		self.controller = None
+		self.obj = None
+		segment = self.segment()
+		if segment is not None:
+			segment.detach()
+
 	@property
 	def isShowing(self) -> bool:
 		""":return: whether a flow is on the display."""
@@ -641,8 +667,8 @@ class FlowBand(PanelOwner):
 		# A table the reader has asked to lay out goes through whatever the flow settings say
 		# about the document it is in. They asked for this table by name, which is more
 		# specific than any setting about browse mode in general, and `showObject` drops the
-		# request the moment they are somewhere else.
-		if self.tableWanted is None and not self.isFlowable(obj):
+		# request the moment they are somewhere else. Under a review tether nothing is flowed.
+		if self.isStandingDownForReview() or (self.tableWanted is None and not self.isFlowable(obj)):
 			# `refresh` follows a rebuild. NVDA has already drawn the current focus into the
 			# new segment, and clearing it here would leave a claimed but inactive band blank.
 			# Forget a controller from the previous container while preserving that freshly
@@ -817,6 +843,9 @@ class FlowBand(PanelOwner):
 		"""
 		segment = self.segment()
 		if segment is None:
+			return False
+		if self.isStandingDownForReview():
+			self.standDownForReview()
 			return False
 		shown = self._showTable(obj, segment, force=force and not focusMoved)
 		if shown is not None:

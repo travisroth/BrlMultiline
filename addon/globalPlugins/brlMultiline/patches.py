@@ -23,6 +23,8 @@
 	is adopted to read a list's or a worksheet's row on one line, and
 	`RowWithFakeNavigation._moveToColumn` is where NVDA's table commands move to another column
 	of it, which nothing else draws. See `tableRowLine.adoptObject`.
+7. `setTether` is where braille goes to review, which is when the flow band stands down and
+	leaves NVDA to present review. See `flowCursor`.
 
 All are installed and removed symmetrically, so disabling the add-on restores NVDA without a
 restart, but a method another add-on has since replaced is left alone. See `remove`.
@@ -37,7 +39,7 @@ from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
 from config.configFlags import TetherTo
 from logHandler import log
 
-from . import glyphFlow, panning, tableRowLine
+from . import flowCursor, glyphFlow, panning, tableRowLine
 from .container import DisplayContainer
 
 _owners: dict[str, object] = {}
@@ -287,6 +289,32 @@ def _tellTheBand(document) -> None:
 	band.documentChanged(document)
 
 
+def _setTetherStandingDownForReview(self: BrailleHandler, tether, auto: bool = False) -> None:
+	"""Let NVDA change the tether, then have the band stand down if braille is now on review.
+
+	NVDA clears the buffer on a change, and the band puts its active block straight back, so the
+	review move that follows would find the flow's block and never build review regions. Standing
+	down here leaves the band empty, so it does. The flow comes back by itself on the tether back
+	to focus, through the focus or caret regions NVDA builds then. See `flowCursor`.
+	"""
+	before = self.getTether()
+	_originals["setTether"](self, tether, auto)
+	try:
+		if before != self.getTether() and flowCursor.isReviewing(self):
+			_standTheBandDown()
+	except Exception:
+		log.debugWarning("Could not stand the flow down for review", exc_info=True)
+
+
+def _standTheBandDown() -> None:
+	from . import getPlugin
+
+	plugin = getPlugin()
+	band = getattr(plugin, "flowBand", None) if plugin is not None else None
+	if band is not None:
+		band.standDownForReview()
+
+
 def _handlePendingUpdateRefreshingPins(self: BrailleHandler) -> None:
 	"""Refresh pinned objects after NVDA has handled its own pending updates.
 
@@ -454,6 +482,7 @@ def _replacements() -> dict[str, tuple]:
 		"scrollForward": (BrailleHandler, _scrollForwardMaybeReversed),
 		"scrollBack": (BrailleHandler, _scrollBackMaybeReversed),
 		"_handlePendingUpdate": (BrailleHandler, _handlePendingUpdateRefreshingPins),
+		"setTether": (BrailleHandler, _setTetherStandingDownForReview),
 	}
 	buffers = _virtualBufferClass()
 	if buffers is not None:

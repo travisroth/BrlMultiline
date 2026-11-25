@@ -1899,6 +1899,20 @@ class FakeBrailleHandler:
 	def _doNewObject(self, regions):
 		self.lastNewObject = list(regions)
 
+	tether = "focus"
+
+	def getTether(self):
+		return self.tether
+
+	def setTether(self, tether, auto=False):
+		"""Transcribed from NVDA's, less the configuration write: a change clears the buffer."""
+		if tether == self.tether:
+			return
+		self.tether = tether
+		buffer = getattr(self, "mainBuffer", None)
+		if buffer is not None:
+			buffer.clear()
+
 	def scrollForward(self):
 		# Transcribed from NVDA's, which scrolls whatever buffer the handler is showing.
 		# The add-on patches this method and falls back to it whenever a scroll has no
@@ -3126,7 +3140,11 @@ def _installPluginStubs() -> None:
 	_module(
 		"config.configFlags",
 		BrailleMode=types.SimpleNamespace(SPEECH_OUTPUT=types.SimpleNamespace(value="speechOutput")),
-		TetherTo=types.SimpleNamespace(FOCUS=types.SimpleNamespace(value="focus")),
+		TetherTo=types.SimpleNamespace(
+			AUTO=types.SimpleNamespace(value="auto"),
+			FOCUS=types.SimpleNamespace(value="focus"),
+			REVIEW=types.SimpleNamespace(value="review"),
+		),
 		ReportTableHeaders=ReportTableHeaders,
 	)
 
