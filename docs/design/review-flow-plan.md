@@ -9,7 +9,8 @@ Read [spatial-reading-plan.md](spatial-reading-plan.md) first, and
 [flow-last-region-audit.md](flow-last-region-audit.md), whose "Review tether" item this plan
 answers.
 
-Status: phases 0 to 3 done, phases 1 to 3 confirmed on hardware. Phase 4 is planned. "What happens today"
+Status: every phase built, phases 1 to 3 confirmed on hardware, phase 4 built and unit tested,
+not yet tried on hardware. "What happens today"
 describes the flow before phase 1.
 
 ## What happens today
@@ -170,7 +171,49 @@ review tether.
    printing a line a second, under an automatic tether and then a manual one, review up through
    the output and pan; confirm the display and the review cursor hold while output arrives, the
    next review key moves on from where the reader was, and a keystroke returns the display to the
-   prompt.
+   prompt. Also type on the Monarch's braille keyboard while held, which should end the hold too.
+   Built: see "Phase 4 as built".
+
+## Phase 4 as built
+
+In a terminal the band is showing, a review move the reader makes starts a hold, and while it holds
+a caret moved by output neither takes the tether back to focus nor moves the review cursor. Any
+gesture that is not reading ends it. All of it is in `reviewHold.py` and three patches.
+
+1. **What starts it.** `patches._handleReviewMoveNotingTheReader` wraps NVDA's
+   `handleReviewMove` and, when it was called with an automatic tether allowed, calls
+   `reviewHold.noteReaderReviewMove`. Review commands, object navigation and
+   `api.setReviewPosition` call it that way, so a review key, a pan and a routing press (phase 3
+   moves the review cursor through `setReviewPosition`) all start or renew the hold; the review
+   cursor following the caret does not (phase 0, third run, item 3). The hold is over the review
+   position's object, and only if that object has NVDA's `Terminal` behaviour and the band is
+   reading it. A reader's review move anywhere else ends the hold.
+2. **What it stops.** `patches._handleCaretMoveHoldingReview` calls NVDA's `handleCaretMove` with
+   `shouldAutoTether=False` for a caret move in the held terminal, so the tether stays on review
+   and NVDA does nothing more with it. `patches._reviewCaretMoveHoldingReview` wraps
+   `review.handleCaretMove`, which is how NVDA moves the review cursor to the caret, and does
+   nothing for the held terminal. So the review cursor is never dragged, and nothing has to be put
+   back: decision 8's step 2 is met by not moving it rather than by restoring it. Under a manual
+   tether only the second is needed, and both are harmless.
+3. **What ends it.** `reviewHold.decideExecuteGesture` is registered with NVDA's
+   `decide_executeGesture` by `patches.install` and taken off by `remove`. It returns True always,
+   since it only notices, and ends the hold for any gesture `keepsTheHold` does not recognise as
+   reading: scripts named `review_` or `navigatorObject_`, the add-on's `scroll` and
+   `flowPanLines` commands, and of NVDA's braille commands only those that read the display
+   (`READING_BRAILLE`). A key with no command is typing and ends it; so do braille keyboard
+   typing (`braille_dots` and its kin), `braille_toFocus` and every other command. A change of
+   tether to focus ends it too, in `_setTetherTellingTheBand`. Once it ends, NVDA's next caret move
+   is handled as NVDA always does, so the band returns to the prompt.
+4. **Output between keystrokes needs nothing more.** Output re-reads the band's blocks through
+   `handleUpdate`, and with the review cursor left where the reader put it, `followCursor` moves
+   nothing, as phase 3 found for content updates.
+
+Open question 6, whether undoing "review cursor follows system caret" should be optional, stays
+open: the hold overrides that setting only in a terminal, only while the reader is reviewing, and
+only until they press something else.
+
+`test_reviewHold` covers each, with transcriptions of NVDA's `handleCaretMove` and
+`review.handleCaretMove`, and its output tests fail with the hold turned off.
 
 ## Phase 3 as built
 
@@ -389,12 +432,13 @@ Phase 0 is done, apart from conhost and screen review.
    should note what happens; the likely answer is to follow NVDA's review position as it stands.
 4. **Does a pin want this?** A pin is never tethered and reads from its own position, so it is
    out of scope. A pinned terminal already shows its own lines and pans on its own.
-5. **How does the flow learn that the reader pressed a key, for decision 8's hold?** It must see
-   keyboard and braille keys alike, and only the reader's, not keys NVDA sends itself, and it
-   must be cheap enough to ask on every caret move. A key that passes through to the terminal
-   (typing) ends the hold, and so should one NVDA handles as a command other than review and
-   panning. Settle against NVDA's input code before phase 4, and check on hardware that output
-   arriving between two keystrokes is still held.
+5. ~~How does the flow learn that the reader pressed a key, for decision 8's hold?~~ **Answered
+   for phase 4: NVDA's `inputCore.decide_executeGesture`,** which `InputManager.executeGesture`
+   asks before every gesture it executes, keyboard and braille display alike, including a key
+   with no command that then passes through to the application. Keys NVDA sends itself do not
+   go through it. It is asked once per gesture, not per caret move, so it costs nothing while
+   output arrives. See "Phase 4 as built". Still to check on hardware: output arriving between
+   two keystrokes is held.
 6. **Should putting the review cursor back be an option?** Decision 8 undoes NVDA's "review
    cursor follows system caret" while the hold lasts, in a terminal only. That is the point of the
    hold, but it overrides a setting the reader chose. If a reader wants NVDA's behaviour, the

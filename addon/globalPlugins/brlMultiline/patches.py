@@ -25,6 +25,9 @@
 	of it, which nothing else draws. See `tableRowLine.adoptObject`.
 7. `setTether` is where braille goes to review and back, which the flow band has to hear before
 	NVDA presents the new cursor. See `FlowBand.tetherChanged`.
+8. `handleReviewMove` is where a review move the reader made is heard, and `handleCaretMove` and
+	`review.handleCaretMove` are where a caret moved by a terminal's output is kept from taking
+	the tether and the review cursor while the reader is reviewing it. See `reviewHold`.
 
 All are installed and removed symmetrically, so disabling the add-on restores NVDA without a
 restart, but a method another add-on has since replaced is left alone. See `remove`.
@@ -39,13 +42,17 @@ from braille.constants import CONTEXTPRES_CHANGEDCONTEXT
 from config.configFlags import TetherTo
 from logHandler import log
 
-from . import glyphFlow, panning, tableRowLine
+from . import flowCursor, glyphFlow, panning, reviewHold, tableRowLine
 from .container import DisplayContainer
 
 _owners: dict[str, object] = {}
 """The class each patched name belongs to, since they are no longer all on one class."""
 
-_ATTRIBUTES = {"textInfoUpdate": "update", "objectRegionUpdate": "update"}
+_ATTRIBUTES = {
+	"textInfoUpdate": "update",
+	"objectRegionUpdate": "update",
+	"reviewHandleCaretMove": "handleCaretMove",
+}
 """Where an entry's key is not the name of the attribute it replaces.
 
 Two classes can share a method name, such as `update`, so the key stays unique.
@@ -299,6 +306,8 @@ def _setTetherTellingTheBand(self: BrailleHandler, tether, auto: bool = False) -
 	_originals["setTether"](self, tether, auto)
 	try:
 		if before != self.getTether():
+			if not flowCursor.isReviewing(self):
+				reviewHold.end()
 			_tellTheBandTheTetherChanged()
 	except Exception:
 		log.debugWarning("Could not tell the flow band the tether changed", exc_info=True)
@@ -311,6 +320,58 @@ def _tellTheBandTheTetherChanged() -> None:
 	band = getattr(plugin, "flowBand", None) if plugin is not None else None
 	if band is not None:
 		band.tetherChanged()
+
+
+def _handleReviewMoveNotingTheReader(self: BrailleHandler, shouldAutoTether: bool = True) -> None:
+	"""Let NVDA follow the review cursor, then note a move the reader made for the review hold.
+
+	A review command, object navigation and `api.setReviewPosition` call this with an automatic
+	tether allowed; NVDA's own moves, the review cursor following the caret among them, do not.
+	See `reviewHold.noteReaderReviewMove`.
+	"""
+	_originals["handleReviewMove"](self, shouldAutoTether)
+	if not shouldAutoTether:
+		return
+	try:
+		reviewHold.noteReaderReviewMove()
+	except Exception:
+		log.debugWarning("Could not note a review move for the review hold", exc_info=True)
+
+
+def _handleCaretMoveHoldingReview(self: BrailleHandler, obj, shouldAutoTether: bool = True) -> None:
+	"""Let NVDA follow the caret, except that a held terminal's caret does not take the tether.
+
+	See `reviewHold`.
+	"""
+	try:
+		if shouldAutoTether and reviewHold.isHolding(obj):
+			shouldAutoTether = False
+	except Exception:
+		log.debugWarning("Could not check a caret move against the review hold", exc_info=True)
+	_originals["handleCaretMove"](self, obj, shouldAutoTether)
+
+
+def _reviewCaretMoveHoldingReview(pos) -> None:
+	"""NVDA's `review.handleCaretMove`, which moves the review cursor to the caret, except in a
+	held terminal. See `reviewHold`.
+	"""
+	try:
+		holding = reviewHold.isHolding(getattr(pos, "obj", pos))
+	except Exception:
+		log.debugWarning("Could not check a review follow against the review hold", exc_info=True)
+		holding = False
+	if holding:
+		return
+	_originals["reviewHandleCaretMove"](pos)
+
+
+def _reviewModule():
+	try:
+		import review
+	except ImportError:
+		log.debugWarning("No review module to patch")
+		return None
+	return review if hasattr(review, "handleCaretMove") else None
 
 
 def _handlePendingUpdateRefreshingPins(self: BrailleHandler) -> None:
@@ -481,7 +542,12 @@ def _replacements() -> dict[str, tuple]:
 		"scrollBack": (BrailleHandler, _scrollBackMaybeReversed),
 		"_handlePendingUpdate": (BrailleHandler, _handlePendingUpdateRefreshingPins),
 		"setTether": (BrailleHandler, _setTetherTellingTheBand),
+		"handleReviewMove": (BrailleHandler, _handleReviewMoveNotingTheReader),
+		"handleCaretMove": (BrailleHandler, _handleCaretMoveHoldingReview),
 	}
+	review = _reviewModule()
+	if review is not None:
+		entries["reviewHandleCaretMove"] = (review, _reviewCaretMoveHoldingReview)
 	buffers = _virtualBufferClass()
 	if buffers is not None:
 		entries["_handleUpdate"] = (buffers, _handleUpdateTellingTheBand)
@@ -531,6 +597,7 @@ def install() -> None:
 		_originals[name] = getattr(owner, attribute)
 		_installedMethods[name] = replacement
 		setattr(owner, attribute, replacement)
+	reviewHold.install()
 	log.debug("BrlMultiline patches installed")
 
 
@@ -552,4 +619,5 @@ def remove() -> None:
 		setattr(owner, attribute, _originals.pop(name))
 		_installedMethods.pop(name, None)
 		_owners.pop(name, None)
+	reviewHold.remove()
 	log.debug("BrlMultiline patches removed")

@@ -1933,6 +1933,15 @@ class FakeBrailleHandler:
 		if buffer is not None:
 			buffer.clear()
 
+	def handleReviewMove(self, shouldAutoTether=True):
+		"""Recorded only: the tests that follow a review move drive `FakeHandler`'s path."""
+		self.lastReviewMove = shouldAutoTether
+
+	def handleCaretMove(self, obj, shouldAutoTether=True):
+		"""Recorded only, with whether the move may take an automatic tether, which the review
+		hold decides."""
+		self.lastCaretMove = (obj, shouldAutoTether)
+
 	def scrollForward(self):
 		# Transcribed from NVDA's, which scrolls whatever buffer the handler is showing.
 		# The add-on patches this method and falls back to it whenever a scroll has no
