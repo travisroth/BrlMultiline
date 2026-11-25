@@ -461,10 +461,13 @@ never moves while you are reading it.
   that with NVDA+Control+T or NVDA did it when you moved the review cursor. Moving the review
   cursor by line, word or character moves the display as the arrow keys do in browse mode, so
   you can read back through a terminal's output with the lines around it on the display.
-  Output that keeps arriving still pulls the review cursor back to the caret, as it does in NVDA
-  itself; holding your place against it is planned. Panning leaves the caret where it is. A table laid out in columns follows the caret only,
-  so under a review tether it is read as lines, and comes back in columns when braille is
-  tethered to focus again. In screen review the flow's rows show review exactly as NVDA does.
+  Panning and routing move the review cursor rather than the caret, so the next review command
+  carries on from the top of what you panned to, as the arrow keys do in browse mode. Routing
+  moves the caret too only if NVDA's "Move system caret when routing review cursor" setting says
+  so. Output that keeps arriving still pulls the review cursor back to the caret, as it does in
+  NVDA itself; holding your place against it is planned. A table laid out in columns follows the
+  caret only, so under a review tether it is read as lines, and comes back in columns when
+  braille is tethered to focus again. In screen review the flow's rows show review exactly as NVDA does.
 - A control inside a page is still read as part of that page. When you type into it, the
   row you are on comes from the real edit control, so the caret and the new text stay current,
   while the label and the content after it still come from the page.

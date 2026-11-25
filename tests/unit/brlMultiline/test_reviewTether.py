@@ -221,6 +221,121 @@ class TestFollowingTheReviewCursor(BandUnderReview):
 		self.assertEqual(self._activeText(), "line 0")
 
 
+class TestMovingTheReviewCursor(BandUnderReview):
+	"""Phase 3: what the reader does on the display moves the review cursor, not the caret."""
+
+	def setUp(self):
+		super().setUp()
+		patch = reviewMode("document")
+		patch.start()
+		self.addCleanup(patch.stop)
+		self.reviewMovesBack = []
+		self.addCleanup(setattr, self.api, "setReviewPosition", getattr(self.api, "setReviewPosition", None))
+		self.api.setReviewPosition = self._setReviewPosition
+		self.assertTrue(self._start())
+		self._reviewMove(20)
+
+	def _setReviewPosition(self, info, clearNavigatorObject=True, isCaret=False, isMouse=False):
+		"""NVDA's, as far as the band sees it: the position moves, then `handleReviewMove` runs."""
+		self.reviewMovesBack.append(info.index)
+		self._reviewAt(info.index)
+		self._queueReviewMove()
+		return True
+
+	def _queueReviewMove(self):
+		"""What NVDA's `handleReviewMove` queues; the core cycle runs it after the command."""
+		region = self.container.regions[-1] if self.container.regions else None
+		if region is not None and getattr(region, "obj", None) == self.interceptor:
+			self.handler._regionsPendingUpdate.add(region)
+
+	def _reviewIndex(self) -> int:
+		return self.api.getReviewPosition().index
+
+	def _topText(self) -> str:
+		control = self.band.controller
+		return control.regionFor(control.window.topBlockId()).rawText
+
+	def test_aPanTakesTheReviewCursorToTheTopOfTheBand(self):
+		self.segment.scrollForward()
+		self.handler._handlePendingUpdate()
+		top = self._topText()
+		self.assertEqual(f"line {self._reviewIndex()}", top)
+		self.assertEqual(self.interceptor.caretIndex, 0)
+
+	def test_theReviewMoveAPanMakesDoesNotMoveTheBandAgain(self):
+		self.segment.scrollForward()
+		top = self._topText()
+		self.handler._handlePendingUpdate()
+		self.assertEqual(self._topText(), top)
+
+	def test_theNextReviewKeyCarriesOnFromThePannedPlace(self):
+		# What the hardware run found missing: a review command after a pan went back to where the
+		# review cursor had been.
+		self.segment.scrollForward()
+		self.handler._handlePendingUpdate()
+		panned = self._reviewIndex()
+		self._reviewMove(panned + 1)
+		self.assertEqual(self._activeText(), f"line {panned + 1}")
+		self.assertNotEqual(self._activeText(), "line 21")
+
+	def test_panningBackMovesTheReviewCursorBack(self):
+		self.segment.scrollForward()
+		self.handler._handlePendingUpdate()
+		forward = self._reviewIndex()
+		self.segment.scrollBack()
+		self.handler._handlePendingUpdate()
+		self.assertLess(self._reviewIndex(), forward)
+
+	def test_steppingABlockMovesTheReviewCursor(self):
+		self.band.controller.stepBlock(forward=True)
+		self.assertEqual(self._reviewIndex(), 21)
+		self.assertEqual(self.interceptor.caretIndex, 0)
+
+	def _routeInto(self, index: int, offset: int = 0):
+		control = self.band.controller
+		region = next(
+			control.regionFor(block.blockId)
+			for block in control.window.blocks
+			if control.regionFor(block.blockId).rawText == f"line {index}"
+		)
+		target = self.interceptor._position(index, offset)
+		region._routeToTextInfo(target)
+		return region
+
+	def test_routingMovesTheReviewCursorNotTheCaret(self):
+		self._routeInto(22)
+		self.assertEqual(self._reviewIndex(), 22)
+		self.assertEqual(self.interceptor.caretIndex, 0)
+
+	def test_routingMovesTheCaretTooWhereNVDASaysItShould(self):
+		from brlMultiline import flowCursor
+
+		with mock.patch.object(flowCursor, "shouldRoutingMoveCaret", return_value=True):
+			self._routeInto(22, offset=3)
+		self.assertEqual(self._reviewIndex(), 22)
+		self.assertEqual(self.interceptor.caretIndex, 22)
+		self.assertEqual(self.interceptor.caretOffset, 3)
+
+	def test_routingOntoTheReviewCursorActivatesAndMovesNothing(self):
+		from brlMultiline import flowCursor
+
+		self.reviewMovesBack.clear()
+		with mock.patch.object(flowCursor, "shouldRoutingMoveCaret", return_value=True):
+			region = self._routeInto(20)
+		self.assertEqual(self.reviewMovesBack, [])
+		self.assertEqual(self.interceptor.caretIndex, 0)
+		self.assertIsNotNone(getattr(region, "activated", None))
+
+	def test_underAFocusTetherAPanStillMovesTheCaret(self):
+		self._setTether("focus")
+		self.handler.handleCaretMove(self.interceptor)
+		self.handler._handlePendingUpdate()
+		self.reviewMovesBack.clear()
+		self.segment.scrollForward()
+		self.assertEqual(self.reviewMovesBack, [])
+		self.assertNotEqual(self.interceptor.caretIndex, 0)
+
+
 class TestTablesUnderReview(BandUnderReview):
 	"""A table in columns follows the caret only, so a change of tether rebuilds the band."""
 

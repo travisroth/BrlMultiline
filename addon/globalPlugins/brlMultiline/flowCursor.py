@@ -100,6 +100,40 @@ def readerPositionIn(obj, followsReview: bool):
 	return obj.makeTextInfo(textInfos.POSITION_SELECTION)
 
 
+def moveReviewTo(info) -> bool:
+	"""Put NVDA's review cursor at a position, as NVDA's own review region does.
+
+	NVDA then calls `handleReviewMove`, which brings the band round to follow; the band finds the
+	review cursor where it put it and moves nothing.
+
+	:param info: the position to move to.
+	:return: whether it moved.
+	"""
+	import api
+
+	try:
+		return bool(api.setReviewPosition(info.copy()))
+	except Exception:
+		log.debugWarning("BrlMultiline: could not move the review cursor", exc_info=True)
+		return False
+
+
+def shouldRoutingMoveCaret() -> bool:
+	"""Whether a routing key under a review tether moves the caret too, by NVDA's own setting.
+
+	:return: NVDA's answer, or False where it cannot be asked.
+	"""
+	try:
+		from braille.regions._routing import _routingShouldMoveSystemCaret
+	except ImportError:
+		return False
+	try:
+		return bool(_routingShouldMoveSystemCaret())
+	except Exception:
+		log.debugWarning("BrlMultiline: could not ask whether routing moves the caret", exc_info=True)
+		return False
+
+
 def canFlowReview() -> bool:
 	"""Whether the review cursor is somewhere a flow can read.
 

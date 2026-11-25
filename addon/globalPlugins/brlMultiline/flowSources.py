@@ -215,6 +215,10 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		block follows the control's live reading unit.
 		"""
 
+		self._routedTo = None
+		"""Where the last `_setCursor` put this region, so routing can tell a move from an
+		activation."""
+
 		self.unit = None
 		"""The reading unit this block is, when the source has chosen one. None keeps NVDA's.
 
@@ -290,10 +294,16 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 
 	def _setCursor(self, info) -> None:
 		self._position = info.copy()
+		self._routedTo = info
 		if self.live:
-			# A live flow is the focus segment, so this is the browse mode cursor moving,
-			# which is what keeps routing able to activate what it lands on.
-			super()._setCursor(info)
+			if flowCursor.isReviewingNow():
+				# The reader is following the review cursor, so it is the cursor that moves,
+				# as NVDA's own review region moves it.
+				flowCursor.moveReviewTo(info)
+			else:
+				# A live flow is the focus segment, so this is the browse mode cursor moving,
+				# which is what keeps routing able to activate what it lands on.
+				super()._setCursor(info)
 		if self.onMoved is None:
 			return
 		try:
@@ -357,20 +367,19 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 			self.brailleCursorPos = None
 
 	def takeCursor(self) -> bool:
-		"""Move the real cursor to this block, for a live flow.
+		"""Move the reader's cursor to this block, for a live flow.
 
-		On a pan the cursor follows the window to its top block, so speech and braille agree.
-		A viewer moves nothing.
+		On a pan the cursor follows the window to its top block, so speech and braille agree and
+		the next move carries on from what is under the reader's hands: the caret, or the review
+		cursor under a review tether, never the caret then, since moving it would take an
+		automatic tether straight back to focus. A viewer moves nothing.
 
 		:return: whether the cursor was moved.
 		"""
 		if not self.live or self._position is None:
 			return False
 		if flowCursor.isReviewingNow():
-			# Moving the caret would take an automatic tether back to focus, and the reader is
-			# following the review cursor. Moving that instead is phase 3 of
-			# docs/design/review-flow-plan.md.
-			return False
+			return flowCursor.moveReviewTo(self._position)
 		try:
 			# Deliberately the base class's, not this one's: the controller is moving the
 			# cursor to a block it has already chosen, so telling it that the region moved
@@ -397,6 +406,28 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		except Exception:
 			log.debugWarning(f"Could not mark the cursor position of {self!r}", exc_info=True)
 			return None
+
+	def _routeToTextInfo(self, info) -> None:
+		"""Route as NVDA does, and under a review tether move the caret too if NVDA's setting says.
+
+		NVDA's routing moves this region's cursor through `_setCursor`, which under a review tether
+		is the review cursor; `ReviewTextInfoRegion` moves the caret after it on the same rule. A
+		press on the cursor activates instead, and moves nothing.
+		"""
+		self._routedTo = None
+		super()._routeToTextInfo(info)
+		if (
+			self.live
+			and self._routedTo is not None
+			and flowCursor.isReviewingNow()
+			and flowCursor.shouldRoutingMoveCaret()
+		):
+			try:
+				# The region class's own, as `takeCursor` uses: a browse mode block moves its
+				# cursor differently from an edit's.
+				super(FlowRegion, self)._setCursor(self._routedTo)
+			except Exception:
+				log.debugWarning(f"Could not move the caret after routing in {self!r}", exc_info=True)
 
 	def routeTo(self, braillePos: int) -> None:
 		if self.live:

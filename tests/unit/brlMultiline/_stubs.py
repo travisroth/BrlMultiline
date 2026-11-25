@@ -1482,6 +1482,18 @@ class TextInfoRegion(Region):
 	def routeTo(self, pos):
 		self.routedTo = pos
 
+	def _routeToTextInfo(self, info):
+		"""Transcribed from NVDA's: a press on the cursor activates, anywhere else moves the cursor.
+
+		`routeTo` above only records the press, which is all most tests ask about; this is the step
+		after it, for the tests that ask what routing moves.
+		"""
+		if self.brailleCursorPos is not None:
+			if info.compareEndPoints(self._getSelection(), "startToStart") == 0:
+				self.activated = info
+				return
+		self._setCursor(info)
+
 	def getTextInfoForBraillePos(self, braillePos):
 		"""Where a cell of this region points, which routing asks for before acting.
 

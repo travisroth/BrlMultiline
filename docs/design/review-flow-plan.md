@@ -9,7 +9,7 @@ Read [spatial-reading-plan.md](spatial-reading-plan.md) first, and
 [flow-last-region-audit.md](flow-last-region-audit.md), whose "Review tether" item this plan
 answers.
 
-Status: phases 0 to 2 done, phases 1 and 2 confirmed on hardware. Phases 3 and 4 are planned. "What happens today"
+Status: phases 0 to 3 done, phases 1 to 3 confirmed on hardware. Phase 4 is planned. "What happens today"
 describes the flow before phase 1.
 
 ## What happens today
@@ -159,15 +159,51 @@ review tether.
 3. **Phase 2, read by review.** `flowCursor`, decisions 1 to 4, and the source and region changes.
    Review keys move the window. Hardware check: review by line through a long command's output in
    Windows Terminal on the Monarch, then in Notepad and a web page. Built: see "Phase 2 as built".
-4. **Phase 3, hold still and move the review cursor.** Decisions 5 to 7. Hardware check: start a
-   command that prints a line a second, tether to review, review up through the output and pan,
-   and confirm the display does not move until the reader does; route to a line and confirm the
-   review cursor is there.
+4. **Phase 3, hold still and move the review cursor.** Decisions 5 to 7. Hardware check: with a
+   command's output finished, review up through it, pan, and confirm the next review command,
+   reading the current line included, carries on from the top of the panned display rather than
+   going back; route to a line and confirm the review cursor is there and the caret is not, unless
+   NVDA's "move system caret when routing review cursor" setting says otherwise. Output still
+   arriving is phase 4's, since NVDA drags the review cursor to the caret for each line of it.
+   Built: see "Phase 3 as built".
 5. **Phase 4, holding against output in a terminal.** Decision 8. Hardware check: with a loop
    printing a line a second, under an automatic tether and then a manual one, review up through
    the output and pan; confirm the display and the review cursor hold while output arrives, the
    next review key moves on from where the reader was, and a keystroke returns the display to the
    prompt.
+
+## Phase 3 as built
+
+Under a review tether, what the reader does on the band moves the review cursor, as panning and
+routing move the caret under a focus tether. The hardware run of phase 2 found the gap: a pan
+moved the band and left the review cursor, so the next review command brought the band back.
+
+1. **A pan or a step takes the review cursor along.** `FlowRegion.takeCursor`, which every pan
+   reaches through `FlowController._cursorToTop` and a step through `_takeCursor`, calls
+   `flowCursor.moveReviewTo` under a review tether, which is `api.setReviewPosition`. The caret is
+   never moved then.
+2. **The review move a pan makes does not move the band again (decision 7).** NVDA answers
+   `setReviewPosition` with `handleReviewMove`, which queues the active block, now the band's top
+   block, and the following re-read reaches `followCursor`. The pan memory the caret already uses
+   answers it: `_pannedAt` and `_pannedCaret` are taken after the pan from `caretPosition` and
+   `cursorMark`, which under a review tether are the review position, so `_panIsTheReadersChoice`
+   holds the window. No `_reviewMark` was needed.
+3. **Routing moves the review cursor (decision 6).** `FlowRegion._setCursor`, which NVDA's
+   routing and its line commands reach, moves the review cursor under a review tether instead of
+   the caret. `FlowRegion._routeToTextInfo` then moves the caret as well when NVDA's own
+   `_routingShouldMoveSystemCaret` says so, through `flowCursor.shouldRoutingMoveCaret`, which is
+   the rule `ReviewTextInfoRegion` follows; a press on the cursor activates and moves nothing. A
+   caret moved this way under an automatic tether takes the tether back to focus, as it does in
+   NVDA.
+4. **Content updates needed nothing new (decision 5).** A re-read that is not a review move finds
+   the review cursor where it was, so `followCursor` moves nothing, and a panned window is held by
+   the same pan memory. Output in a terminal is different only because NVDA moves the review cursor
+   to the caret for every line of it, which is phase 4's hold.
+
+`test_reviewTether` covers each, and its tests fail with `moveReviewTo` doing nothing, or with
+routing never moving the caret.
+
+Confirmed on the Monarch: after a pan the next review command carries on from the panned place.
 
 ## Phase 2 as built
 
