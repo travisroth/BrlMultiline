@@ -619,19 +619,38 @@ class FlowBand(PanelOwner):
 		except Exception:
 			log.debugWarning("Could not give back the flow band", exc_info=True)
 
-	def isStandingDownForReview(self) -> bool:
-		"""Whether braille is tethered to review, when the band leaves the display to NVDA.
-
-		See `flowCursor`.
-		"""
+	def isFollowingReview(self) -> bool:
+		""":return: whether braille is tethered to review, so the band reads at the review cursor."""
 		return flowCursor.isReviewing(self._handler())
 
-	def standDownForReview(self) -> None:
-		"""Leave the band to NVDA's review presentation, keeping the claim.
+	def isStandingDownForReview(self) -> bool:
+		"""Whether braille is tethered to review somewhere a flow cannot read, such as screen review.
 
-		The band becomes an ordinary segment, as for a focus that cannot be flowed, so the review
-		regions NVDA builds next are placed in it. The flow comes back with the next focus or caret
-		regions NVDA builds once braille is tethered to focus again.
+		The band then leaves the display to NVDA. See `flowCursor.canFlowReview`.
+		"""
+		return self.isFollowingReview() and not flowCursor.canFlowReview()
+
+	def tetherChanged(self) -> None:
+		"""Answer braille's tether changing, before NVDA presents the cursor it is now tethered to.
+
+		NVDA clears the buffer on a change and the band puts its active block straight back, so
+		NVDA's next move finds the flow's block and the flow follows the new cursor by itself.
+		Where it cannot, the band stands down, so NVDA builds regions afresh and offers them: under
+		a review tether a flow cannot read, and wherever a table is laid out in columns, which
+		follows the caret only. See docs/design/review-flow-plan.md, decision 10.
+		"""
+		if (
+			self.isStandingDownForReview()
+			or self._readingATable()
+			or (not self.isFollowingReview() and self.tableWanted is not None)
+		):
+			self.standDown()
+
+	def standDown(self) -> None:
+		"""Leave the band to NVDA, keeping the claim.
+
+		The band becomes an ordinary segment, as for a focus that cannot be flowed, so the regions
+		NVDA builds next are placed in it, or offered to the band again.
 		"""
 		self._cancelSettle()
 		self._cancelLiveRead()
@@ -695,11 +714,14 @@ class FlowBand(PanelOwner):
 		# Before the questions below, and cheap: one attribute. A band left short by the
 		# budget must be finished whatever else this redraw concludes.
 		self._scheduleFill()
-		if self._readingATable():
-			self._recheckTable()
-			return
-		if self._walkedIntoASavedTable():
-			return
+		# Tables in columns follow the caret, so they are neither kept nor taken up while the
+		# band follows the review cursor. See `tetherChanged`.
+		if not self.isFollowingReview():
+			if self._readingATable():
+				self._recheckTable()
+				return
+			if self._walkedIntoASavedTable():
+				return
 		if self._runHasChangedShape():
 			return
 		obj = self._target()
@@ -845,9 +867,15 @@ class FlowBand(PanelOwner):
 		if segment is None:
 			return False
 		if self.isStandingDownForReview():
-			self.standDownForReview()
+			self.standDown()
 			return False
-		shown = self._showTable(obj, segment, force=force and not focusMoved)
+		# A table is laid out by the caret, so while following the review cursor it is read as
+		# lines. See decision 10 of docs/design/review-flow-plan.md.
+		shown = (
+			None
+			if self.isFollowingReview()
+			else self._showTable(obj, segment, force=force and not focusMoved)
+		)
 		if shown is not None:
 			return shown
 		if self._readingATable():
@@ -1871,11 +1899,15 @@ class FlowBand(PanelOwner):
 	# Where things are.
 
 	def _target(self):
-		""":return: the object to read, which is where the focus is.
+		""":return: the object to read, which is where the reader is.
 
-		The band is the focus segment. The navigator object is the fallback when there is no
-		focus.
+		The band is the focus segment, so the focus, or where the review cursor is under a review
+		tether. The navigator object is the fallback when there is no focus.
 		"""
+		if self.isFollowingReview():
+			obj = flowCursor.reviewObject()
+			if obj is not None:
+				return obj
 		try:
 			obj = api.getFocusObject()
 		except Exception:

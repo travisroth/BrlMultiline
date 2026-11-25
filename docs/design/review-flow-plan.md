@@ -9,8 +9,8 @@ Read [spatial-reading-plan.md](spatial-reading-plan.md) first, and
 [flow-last-region-audit.md](flow-last-region-audit.md), whose "Review tether" item this plan
 answers.
 
-Status: phase 0 done, phase 1 built, unit tested and confirmed on hardware. Phases 2 to 4 are
-planned. "What happens today" describes the flow before phase 1.
+Status: phases 0 to 2 done, phases 1 and 2 confirmed on hardware. Phases 3 and 4 are planned. "What happens today"
+describes the flow before phase 1.
 
 ## What happens today
 
@@ -158,7 +158,7 @@ review tether.
    comes back at the prompt; press NVDA+Control+T both ways and confirm the same.
 3. **Phase 2, read by review.** `flowCursor`, decisions 1 to 4, and the source and region changes.
    Review keys move the window. Hardware check: review by line through a long command's output in
-   Windows Terminal on the Monarch, then in Notepad and a web page.
+   Windows Terminal on the Monarch, then in Notepad and a web page. Built: see "Phase 2 as built".
 4. **Phase 3, hold still and move the review cursor.** Decisions 5 to 7. Hardware check: start a
    command that prints a line a second, tether to review, review up through the output and pan,
    and confirm the display does not move until the reader does; route to a line and confirm the
@@ -168,6 +168,58 @@ review tether.
    the output and pan; confirm the display and the review cursor hold while output arrives, the
    next review key moves on from where the reader was, and a keystroke returns the display to the
    prompt.
+
+## Phase 2 as built
+
+Under a review tether the band reads at the review cursor, and review keys move its window as the
+arrow keys do in browse mode. It stands down only where the review cursor is somewhere a flow
+cannot read, which narrows phase 1 back to decision 9.
+
+1. **`flowCursor` answers where the reader is.** `readerPositionIn(obj, followsReview)` gives a
+   copy of the review position under a review tether, while the review cursor is in that object,
+   and the caret otherwise. `reviewPosition`, `reviewObject` and `reviewPositionIn` read NVDA's
+   `api.getReviewPosition`, and `canFlowReview` says no in screen review and for a display model
+   without a caret, and when there is no review position.
+2. **Only the band follows review.** `DocumentFlowSource` takes `followsReview`, which
+   `buildController` sets from `live`, so the band's source follows the reader and a pin's or a
+   dry run's reads from its own place. `blockAtCursor` and `caretPosition` read through
+   `readerPositionIn`, and `isFollowingReview` says when a source is reading at the review cursor
+   now. A focused edit inside a page is read through its own caret, so that path is skipped while
+   following review.
+3. **The active block reads at the review cursor.** `FlowRegion._liveCursorHere` asks
+   `_readerCursor`, which under a review tether is the review position in the region's object, or
+   None when the review cursor is in another object, so the block reads from its own start rather
+   than at a caret the reader is not following. Live regions are the band's, so this is decision
+   2's one place for the regions.
+4. **A review move is followed as a caret move is.** NVDA's `handleReviewMove` finds the band's
+   active block, as phase 0 showed, re-reads it, and `_followIfRead` calls `followCursor`, which now
+   finds the review cursor's block. Nothing on the band's side is new. `FlowController._writing`
+   is False while the source follows review: a terminal is an edit, and the re-read for typing
+   keeps the band where it is, where the band has to move to the review cursor.
+5. **The band reads where the review cursor is.** `FlowBand._target` is the review position's
+   object under a review tether, so a band started or rebuilt under one, and `recheck`, read
+   there.
+6. **A change of tether is answered by `FlowBand.tetherChanged`,** through the patch on
+   `setTether`, now `_setTetherTellingTheBand`. Within one document the band keeps its reading,
+   and NVDA's next move finds the active block and the flow follows the new cursor. The band
+   stands down where it cannot: under a review tether a flow cannot read, and wherever a table is
+   laid out in columns, or wanted in columns on the way back to focus, since tables follow the
+   caret only (decision 10). Standing down leaves the band empty, so NVDA builds regions afresh
+   and offers them, and `showObject` builds the right reading from them. `showObject` skips the
+   table path under a review tether, and `recheck` neither keeps nor takes up a table then.
+7. **Panning does not move the caret under a review tether.** `FlowRegion.takeCursor` returns
+   False, since moving the caret would take an automatic tether straight back to focus. Moving
+   the review cursor on a pan is phase 3, decision 6. Routing still moves the caret as before,
+   which under an automatic tether returns to focus; that is phase 3 as well.
+
+`test_reviewTether` covers each, with a transcription of NVDA's `handleReviewMove`, and its
+review-following tests fail with `readerPositionIn` reading only the caret, or with `takeCursor`
+moving the caret.
+
+Confirmed on the Monarch: review keys move the band. It also showed why decision 6 matters. A pan
+moves the band but not the review cursor, so the next review command, even reading the current
+line, brings the band back to where the review cursor was, where in browse mode a pan takes the
+caret along and the reader carries on from the panned place.
 
 ## Phase 1 as built
 

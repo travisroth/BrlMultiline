@@ -457,10 +457,14 @@ never moves while you are reading it.
   document.
 - Panning moves the browse mode cursor to what is at the top of the display, so speech and
   braille stay together, and the arrow keys continue from what is under your hands.
-- The flow follows the caret, not the review cursor. While braille is tethered to review,
-  whether you chose that with NVDA+Control+T or NVDA did it when you moved the review cursor,
-  the flow's rows show review exactly as NVDA does, and the flow comes back when braille is
-  tethered to focus again. A flow that follows the review cursor is planned.
+- The flow follows the review cursor while braille is tethered to review, whether you chose
+  that with NVDA+Control+T or NVDA did it when you moved the review cursor. Moving the review
+  cursor by line, word or character moves the display as the arrow keys do in browse mode, so
+  you can read back through a terminal's output with the lines around it on the display.
+  Output that keeps arriving still pulls the review cursor back to the caret, as it does in NVDA
+  itself; holding your place against it is planned. Panning leaves the caret where it is. A table laid out in columns follows the caret only,
+  so under a review tether it is read as lines, and comes back in columns when braille is
+  tethered to focus again. In screen review the flow's rows show review exactly as NVDA does.
 - A control inside a page is still read as part of that page. When you type into it, the
   row you are on comes from the real edit control, so the caret and the new text stay current,
   while the label and the content after it still come from the page.

@@ -31,7 +31,7 @@ import textInfos
 from braille.regions.textInfo import CursorManagerRegion, TextInfoRegion
 from logHandler import log
 
-from . import flowForms, flowListDepth
+from . import flowCursor, flowForms, flowListDepth
 from .flow import BlockId, ByIdentity, FetchResult, SourceBlock
 from .pinnedRegions import CursorOnlyWhereTheReaderIs
 
@@ -259,7 +259,9 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		if not (self.isActive and self.live):
 			return None
 		try:
-			live = super()._getSelection()
+			live = self._readerCursor()
+			if live is None:
+				return None
 			if self.tracksLiveCursorAcrossUnits:
 				# Remember where the reader last was in the edit. Panning away and back to the
 				# field should return there rather than to the line on which it was entered.
@@ -274,6 +276,17 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		except Exception:
 			log.debugWarning(f"Could not read the cursor within {self!r}", exc_info=True)
 		return None
+
+	def _readerCursor(self):
+		""":return: the reader's cursor: the review position under a review tether, else the caret.
+
+		Under a review tether, None when the review cursor is in another object, so the block is
+		read from its own start rather than from a caret the reader is not following. A live
+		region is the band's, which follows the reader; see `flowCursor`.
+		"""
+		if flowCursor.isReviewingNow():
+			return flowCursor.reviewPositionIn(self.obj)
+		return super()._getSelection()
 
 	def _setCursor(self, info) -> None:
 		self._position = info.copy()
@@ -352,6 +365,11 @@ class FlowRegion(CursorOnlyWhereTheReaderIs):
 		:return: whether the cursor was moved.
 		"""
 		if not self.live or self._position is None:
+			return False
+		if flowCursor.isReviewingNow():
+			# Moving the caret would take an automatic tether back to focus, and the reader is
+			# following the review cursor. Moving that instead is phase 3 of
+			# docs/design/review-flow-plan.md.
 			return False
 		try:
 			# Deliberately the base class's, not this one's: the controller is moving the
@@ -691,6 +709,7 @@ class DocumentFlowSource:
 		generation: int = 0,
 		interactive: bool = False,
 		budget: FetchBudget | None = None,
+		followsReview: bool = False,
 	) -> None:
 		"""
 		:param obj: the object or tree interceptor to read.
@@ -702,8 +721,11 @@ class DocumentFlowSource:
 			reading it. Blank lines are the document when writing and are layout when
 			reading, so this decides whether a run of them collapses.
 		:param budget: how much work a fetch may do. One is made if none is given.
+		:param followsReview: whether this source reads at the review position under a review
+			tether, as the band's does and a pin's does not. See `flowCursor`.
 		"""
 		self.obj = obj
+		self.followsReview = followsReview
 		self.regionFactory = regionFactory
 		self.unit = unit
 		self.generation = generation
@@ -742,6 +764,10 @@ class DocumentFlowSource:
 
 		self._interactiveBlock: SourceBlock | None = None
 		"""The edit block, kept so NVDA can queue its region object for later updates."""
+
+	def isFollowingReview(self) -> bool:
+		""":return: whether this source is reading at the review position now."""
+		return self.followsReview and flowCursor.isReviewingNow()
 
 	def setInteractiveObject(self, obj, regionFactory: Callable | None = None) -> bool:
 		"""Read one document block through its focused editable object.
@@ -782,8 +808,12 @@ class DocumentFlowSource:
 		:return: the block, or an error if the document could not be read.
 		"""
 		self.budget.startUnlessActive()
-		if self._interactiveOwnsTheCaret() and (
-			atObject is None or self._sameObject(atObject, self._interactiveObject)
+		# A focused edit is read through its own caret, which is not where the reader is while
+		# following the review cursor.
+		if (
+			not self.isFollowingReview()
+			and self._interactiveOwnsTheCaret()
+			and (atObject is None or self._sameObject(atObject, self._interactiveObject))
 		):
 			return self._interactiveBlockAtCursor()
 		info = self._positionOf(atObject) if atObject is not None else None
@@ -795,7 +825,7 @@ class DocumentFlowSource:
 		isControl = info is not None and flowForms.isControlObject(atObject)
 		if info is None:
 			try:
-				info = self.obj.makeTextInfo(textInfos.POSITION_SELECTION)
+				info = flowCursor.readerPositionIn(self.obj, self.followsReview)
 			except Exception as error:
 				log.debugWarning("Could not read the cursor position", exc_info=True)
 				return FetchResult.failed(f"no cursor position: {error!r}")
@@ -820,13 +850,14 @@ class DocumentFlowSource:
 			return None
 
 	def caretPosition(self):
-		""":return: a mark for where this document's caret is, or None if it cannot be read.
+		""":return: a mark for where the reader's cursor is in this document, or None if it cannot
+		be read: the caret, or the review cursor while this source follows it.
 
 		Compared by value. From the document, not the rendering. See
-		`FlowController._caretIsWhereThePanLeftIt`.
+		`FlowController._caretIsWhereThePanLeftIt` and `flowCursor`.
 		"""
 		try:
-			return self.obj.makeTextInfo(textInfos.POSITION_SELECTION).bookmark
+			return flowCursor.readerPositionIn(self.obj, self.followsReview).bookmark
 		except Exception:
 			log.debugWarning("Could not read the caret position", exc_info=True)
 			return None

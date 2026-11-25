@@ -626,6 +626,9 @@ def buildController(
 		# Sized to the band: filling eight rows costs at least eight blocks, so a budget near
 		# the band's own height is one the reader meets on every arrival. See `budgetForBand`.
 		budget=budgetForBand(numRows),
+		# A live flow is the band, which follows the reader's cursor, the review cursor
+		# included; a pin and a dry run read from their own places. See `flowCursor`.
+		followsReview=live,
 	)
 	interactiveFactory = interactiveRegionFactory(
 		target,

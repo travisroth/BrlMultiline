@@ -1559,6 +1559,14 @@ class FakeHandler:
 	def getTether(self):
 		return self.tether
 
+	def setTether(self, tether, auto=False):
+		"""Transcribed from NVDA's, less the configuration write: a change clears the buffer."""
+		if tether == self.tether:
+			return
+		self.tether = tether
+		if self.mainBuffer is not None:
+			self.mainBuffer.clear()
+
 	def scrollToCursorOrSelection(self, region):
 		self.scrolledTo.append(region)
 

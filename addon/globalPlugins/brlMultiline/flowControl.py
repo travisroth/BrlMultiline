@@ -1961,8 +1961,16 @@ class FlowController(PanelOwner):
 		return None if text is None else len(text)
 
 	def _writing(self) -> bool:
-		""":return: whether the reader is typing into the document this flow reads."""
-		return bool(self.live and getattr(self.source, "writing", False))
+		""":return: whether the reader is typing into the document this flow reads.
+
+		Never while the flow follows the review cursor, which is reading, not typing: the
+		re-read for typing keeps the band where it is, and the band must move to the review
+		cursor.
+		"""
+		if not (self.live and getattr(self.source, "writing", False)):
+			return False
+		followingReview = getattr(self.source, "isFollowingReview", None)
+		return not (callable(followingReview) and followingReview())
 
 	def _readAgainWhileWriting(self, ground: bool = False) -> Arrival:
 		"""Read the whole band again from the caret, keeping it on the row it was on.
