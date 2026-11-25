@@ -72,8 +72,9 @@ one would win.
 ## Still to decide
 
 - **Review tether.** Sites 2 and 9 behave differently when braille is tethered to review.
-  A flow while tethered to review is not designed; the safe first behaviour is for the flow
-  to stand down and let NVDA present review as it does today.
+  A flow while tethered to review is designed in [review-flow-plan.md](review-flow-plan.md),
+  not yet built. Its first phase is the safe behaviour proposed here: the flow stands down and
+  lets NVDA present review as it does today.
 - **Braille input into a flow.** Sites 7 and 8 are correct once routed to the active block,
   but typing into a multi row window also grows the block being typed into, which is the
   "cursor's row stays visible" rule from milestone 4. Until that lands, braille input in a

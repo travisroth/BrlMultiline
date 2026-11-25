@@ -102,6 +102,10 @@ Read the files in this order:
    designs that were recorded only in code comments until the comments were trimmed, grouped by
    subsystem, each with the commit that holds the original wording. Read it when a rule in the
    code seems stricter than it needs to be.
+20. [review-flow-plan.md](review-flow-plan.md) — the plan for a flow that follows NVDA's review
+   cursor when braille is tethered to review, as it follows the caret when tethered to focus, for
+   reading a terminal's output a line at a time while more arrives. Planned, not built. Read it
+   before changing how the flow decides where the reader is.
 
 ## Project background
 
